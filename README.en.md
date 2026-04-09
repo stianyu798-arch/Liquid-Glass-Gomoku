@@ -14,6 +14,7 @@
 | **Win & line** | Five in a row wins, line highlighted; “New game” can pulse after the game. |
 | **History** | Games stored in **`localStorage`**; select, step or auto-replay. |
 | **Encyclopedia** | Pattern templates with animated demos and text on the right. |
+| **Pattern import** | Bring a demo position into human vs AI when rules allow; optional random simulation until a translatable match appears; after import, prompts like “Opponent to move” / “Your turn” may show when the next player is white. |
 | **UI** | Board and grid **scale with the layout**; **responsive gap** between board and side panel; **vertical scroll** on the main block or side panel when content does not fit (`overflow-y: auto`). |
 
 ---
@@ -23,7 +24,7 @@
 - **React 19**, **TypeScript**, **Vite 8** (`@vitejs/plugin-react`)
 - **ESLint** (`typescript-eslint`, React Hooks)
 
-All game and AI logic runs **in the browser** (pattern matching, static eval, minimax + alpha-beta). **No backend.**
+All game and AI logic runs **in the browser** (pattern matching, static eval, minimax + alpha-beta). **No backend.** For **normal / hard**, AI search runs in a **Web Worker** (`src/ai/ai.worker.ts`) so the main thread stays responsive; **easy** stays on the main thread (lightweight). Leaf evaluation is shared in `src/ai/engine.ts` with a single-pass heuristic to reduce work.
 
 ---
 
@@ -114,6 +115,9 @@ Update the path if you rename the repository.
 gomoku-liquid-glass/
 ├── public/
 ├── src/
+│   ├── ai/
+│   │   ├── engine.ts       # AI search & eval (shared by main thread & worker)
+│   │   └── ai.worker.ts    # normal/hard minimax off the main thread
 │   ├── App.tsx
 │   ├── App.css
 │   ├── main.tsx
