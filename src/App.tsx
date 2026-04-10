@@ -4168,7 +4168,7 @@ function App() {
                 <p className="about-modal-text">
                   <strong>简单</strong>：该赢、该挡时不含糊；其它时候带点随机，不总下最强点，适合入门，并有落子提示。
                   <strong>普通</strong>：比简单多想几步，更难缠；无提示。
-                  <strong>困难</strong>：想得最深，还会在几个好点里再模拟几手棋来挑点，整体最强（仍无神经网络）。
+                  <strong>困难</strong>：想得最深，还会在几个好点里再模拟几手棋来挑点；搜索中结合全盘线型评估与邻域启发（仍无神经网络）。
                   具体算法见 <code>src/ai/engine.ts</code>；白方在 Web Worker 里算棋，避免卡住界面。
                 </p>
                 <p className="about-modal-text">

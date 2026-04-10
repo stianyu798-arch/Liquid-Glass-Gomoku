@@ -1,6 +1,6 @@
 /**
  * 人机 AI 与局面估值（供主线程与 Web Worker 共用）。
- * 叶节点估值已做单遍扫描优化，避免 staticEval 重复 generateMoveCandidates。
+ * 普通/简单等路径：叶节点用邻域单遍扫描（staticEvalForAI）；困难档搜索链可改用文档式**全盘线型差分**（evaluateGlobalDiff），二者见 minimaxAB 分支。
  *
  * 难度设计参考常见博弈 AI 文献与开源实践（如极小化极大 + α-β、静态估值指数权重、弱棋力下的随机策略）：
  * - 简单：必胜/必防后，对候选点按局面启发分做 **softmax 温度采样**（随机策略，类似带温度的策略分布，非均匀瞎走）。

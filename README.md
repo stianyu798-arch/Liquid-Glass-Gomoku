@@ -28,7 +28,7 @@
 - **React 19**、**TypeScript**、**Vite 8**（`@vitejs/plugin-react`）
 - **ESLint**（`typescript-eslint`、React Hooks）
 
-对局与 AI 为**纯前端**（棋形匹配、静态估值、minimax + α-β 等），无后端。**普通 / 困难** 档的 AI 在 **Web Worker**（`src/ai/ai.worker.ts`）中运行，避免长时间阻塞界面；简单档仍在主线程。叶节点估值在 `src/ai/engine.ts` 中单遍计算。
+对局与 AI 为**纯前端**（棋形匹配、静态估值、minimax + α-β 等），无后端。**普通 / 困难** 档的 AI 在 **Web Worker**（`src/ai/ai.worker.ts`）中运行，避免长时间阻塞界面；简单档仍在主线程。核心逻辑在 `src/ai/engine.ts`：**普通档**叶节点为邻域启发；**困难档**可选用全盘线型差分 + 与文档一致的候选半径 / 排序（见上文「困难档」条）。
 
 ### AI 说明与延伸阅读
 
@@ -90,7 +90,7 @@ gomoku-liquid-glass/
 ├── public/
 ├── src/
 │   ├── ai/
-│   │   ├── engine.ts       # AI 搜索与局面估值（主线程与 Worker 共用）
+│   │   ├── engine.ts       # AI 搜索与局面估值：邻域启发 / 困难档可选全盘线型差分
 │   │   └── ai.worker.ts    # 普通/困难档在 Worker 中运行
 │   ├── App.tsx             # 对局 / 历史 / 招式 / 棋形导入
 │   ├── App.css
