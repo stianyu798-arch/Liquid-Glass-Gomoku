@@ -12,7 +12,7 @@
 
 | Area | Description |
 |------|-------------|
-| **Play** | 15×15; you are black, AI is white; **easy** (after tactics, **softmax temperature** over heuristic scores); **normal** (**alpha-beta**, deeper than easy); **hard** (deeper α-β + root **Monte Carlo rollouts**; **no** neural net). |
+| **Play** | 15×15; you are black, AI is white; **easy** (after tactics, **softmax temperature** over heuristic scores); **normal** (**alpha-beta**); **hard** (deeper **α-β** + root **Monte Carlo rollouts**; forced blocks mainly for severe threats—open-three class threats are left to search to balance **attack vs defense**; **no** neural net). |
 | **Scoring & names** | In **easy** mode, shapes are scored and named; moves show in the side move list. |
 | **Hints (easy)** | Suggested intersection can be highlighted on your turn (other modes: no hint). |
 | **Win & line** | Five in a row wins, line highlighted; “New game” can pulse after the game. |
@@ -33,9 +33,9 @@ All game and AI logic runs **in the browser**. **No backend.** **Normal / hard**
 ### AI notes & references
 
 - **Easy**: After forced win/block, **softmax sampling** over candidates (temperature in `EASY_SOFTMAX_TEMPERATURE`).
-- **Normal**: **Alpha-beta** with `pickBestMoveMinimax(board, 3)`.
-- **Hard**: Top moves from **alpha-beta**, then **Monte Carlo rollouts** at the root (`pickBestMoveHardHybrid`), **no** neural net.
-- **External refs**: [gomoku_rl](https://github.com/guokezhen999/gomoku_rl) (deep RL / PyTorch); [gobang](https://github.com/lihongxun945/gobang) (classic alpha-beta, JS).
+- **Normal**: **Alpha-beta** with `pickBestMoveMinimax(board, 3)`; leaf eval slightly favors defense (opponent best point ×1.08).
+- **Hard**: **Alpha-beta** (deeper) then root **Monte Carlo rollouts** (`pickBestMoveHardHybrid`); search uses **lower opponent-threat weight** and **higher own-shape weight**; **instant block** mainly when the opponent’s best empty intersection is a **very strong** threat (e.g. open-four class)—weaker threats are decided by search for better **offense**. **No** neural net.
+- **External refs**: [gomoku_rl](https://github.com/guokezhen999/gomoku_rl) (deep RL / PyTorch); [gobang](https://github.com/lihongxun945/gobang) (classic alpha-beta, JS). Independent of this frontend—see in-app **About**.
 
 ---
 

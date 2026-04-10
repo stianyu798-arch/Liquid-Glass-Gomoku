@@ -6,22 +6,52 @@
 
 ---
 
-## 2026-04-10
+## 2026-04-10 · UI 与困难档 AI
 
-### 文档
+### 「关于本作」弹窗
 
-- 同步 [README.md](README.md) / [README.en.md](README.en.md)：人机三档 AI 行为说明（softmax、α-β、困难档蒙特卡洛 rollout）、延伸阅读与参考仓库链接。
-- 新增本文件作为固定迭代说明载体。
-- README 面向访客重写：增加 **GitHub Pages 在线试玩**链接；删除「勿在用户主目录 init」等维护者向长文；将构建与 Pages 部署合并为简短对外说明；功能表与数据隐私用语改为读者视角。
+- 使用 **`createPortal(..., document.body)`**，避免挂在带 `transform` 的 `.app-root` 下导致 **`position: fixed` 宽度异常**。
+- 遮罩改为 **flex 居中**；卡片 **max 宽约 1280px / 94vw**，**z-index** 提高；困难档相关样式与文案同步调整。
+
+### 人机对弈文案
+
+- 顶栏难度 **title** 与侧栏 **play-side-desc**：在通俗前提下补充棋理（攻守、提示光、详见「关于本作」等）。
+
+### 困难档 AI（`src/ai/engine.ts`）
+
+- **必堵阈值**抬高：仅 **冲四 / 活四 / 成五** 量级仍「一步封堵」；**活三及以下**更多由 **α-β** 在攻守间取舍，减轻「只会堵」。
+- 叶节点 **`myBest * 1.12 - opBest * 0.8`**（困难搜索链）；**hybrid** 内层 minimax **深度 4**、兜底 **深度 5**；根候选与 **band** 略放宽以利进攻型候选进入 MC。
+- **minimax** 增加对方权重 / 己方加成参数；**普通 / 简单**仍走默认估值权重。
+
+### 文档（同日早期条目）
+
+- 同步 [README.md](README.md) / [README.en.md](README.en.md) 三档 AI、延伸阅读与参考链接；README 面向访客与 Pages 试玩说明。
+- **简单 / 普通 / 困难** 基础行为：`pickEasySoftmaxSample`、`pickBestMoveMinimax` 深度 3、`pickBestMoveHardHybrid`；**提示光（简单）**：`pickBestHumanHintMove`。
+
+### 界面与布局（同日早期条目）
+
+- **人机对弈**侧栏与 `.board-wrap` 对齐；**历史**侧栏 `height: auto`，避免长屏下玻璃空白。
+
+---
+
+## 2026-04-11
+
+### 历史查看
+
+- 支持**按本地日期**（`type="date"`）筛选对局，可一键清除日期。
+- 列表**分页**：可选每页 8 / 15 / 30 条，上一页 / 下一页与页码摘要；筛选结果为空时提示「该日期暂无对局」。
+
+### 移动端棋盘
+
+- 棋盘最大边长同时受 **视口宽 − 左右内边距** 约束，横屏时不再仅被过小的 `dvh − chrome` 压成极窄棋盘。
+- 窄屏略减 `--app-chrome-y`、低高度横屏进一步压低 chrome；玻璃内边距在 ≤960px 下改为 15px（更宽网格）。
+- 落子点：`touch-action: manipulation`、取消 tap 高亮；**粗指针**设备上略放大落子热区（clamp 上限 42px）。
+
+### 招式大全（窄屏）
+
+- **招式说明**区块与 **以此局面续弈**：修正 `catalog-footer` 被 `flex-shrink`/`overflow` 裁切；`catalog-panel` 可整体纵向滚动；略降卡片区 `min-height`、放宽说明区 `max-height`，并加安全区底内边距。
 
 ### 人机 AI（`src/ai/engine.ts`）
 
-- **简单**：非强制阶段使用 `pickEasySoftmaxSample`，对若干强候选按静态估值做 softmax 温度抽样（`EASY_SOFTMAX_TEMPERATURE`）。
-- **普通**：`pickBestMoveMinimax` 搜索深度为 3。
-- **困难**：`pickBestMoveHardHybrid` — 先 α-β 得到强候选，再在根节点做多局随机 rollout，按白方胜率加权选点（无神经网络）。
-- **提示光（简单）**：`pickBestHumanHintMove` 在简单档下按静态估值优先候选给出提示。
-
-### 界面与布局（`App.tsx` / `App.css`）
-
-- **人机对弈**：侧栏高度仅与左侧 `.board-wrap`（棋盘外包）对齐；栅格内 `align-self: start`，避免行盒被异常撑高导致与棋盘底缘不齐。
-- **历史查看**：不再对侧栏施加与行盒同步的超大固定像素高；右侧玻璃层 `height: auto`，功能区域在列表、回放控件与「对抗条」下方结束，修复长屏/移动端下玻璃内部在对抗条下方被拉成长条空白的问题。
+- 估值线段窗口由 9 格扩为 **11 格**，减少三连贴边时棋形漏检。
+- **封堵**：在「挡对方成五」之后，若黑方（人）在某一空点静态分超过档位阈值（眠三及以上等），白棋**优先占该点**；略提高冲四/活三/眠三等 **opp** 权重与叶节点对方威胁系数（`staticEval`）。

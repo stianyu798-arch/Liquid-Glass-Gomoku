@@ -5,7 +5,7 @@
  * 难度设计参考常见博弈 AI 文献与开源实践（如极小化极大 + α-β、静态估值指数权重、弱棋力下的随机策略）：
  * - 简单：必胜/必防后，对候选点按局面启发分做 **softmax 温度采样**（随机策略，类似带温度的策略分布，非均匀瞎走）。
  * - 普通：**α-β**，根下搜索深度介于入门与困难之间（见 pickBestMoveMinimax 层数）。
- * - 困难：α-β + 根节点蒙特卡洛 rollout（与 MCTS 模拟层思想接近，无神经网络）。
+ * - 困难：α-β + 根节点 MC；必堵仅冲四级以上，活三交搜索；叶节点己方加权、对方降权，hybrid 加深一层。
  */
 
 export type Cell = 0 | 1 | 2
@@ -32,11 +32,11 @@ const DIRS = [
 const PATTERN_SCORES: { pattern: RegExp; self: number; opp: number; name: string }[] = [
   { pattern: /11111/, self: 200000, opp: 200000, name: '成五' },
   { pattern: /011110/, self: 42000, opp: 52000, name: '活四' },
-  { pattern: /211110|011112/, self: 16000, opp: 22000, name: '冲四' },
-  { pattern: /01110/, self: 7000, opp: 9000, name: '活三' },
-  { pattern: /010110|011010/, self: 4200, opp: 5600, name: '跳三' },
-  { pattern: /001112|211100|010112|211010|011012|210110/, self: 2000, opp: 2600, name: '眠三' },
-  { pattern: /001110|011100|0101100|0010110/, self: 3200, opp: 4200, name: '潜在活三' },
+  { pattern: /211110|011112/, self: 16000, opp: 24000, name: '冲四' },
+  { pattern: /01110/, self: 7000, opp: 11000, name: '活三' },
+  { pattern: /010110|011010/, self: 4200, opp: 6800, name: '跳三' },
+  { pattern: /001112|211100|010112|211010|011012|210110/, self: 2000, opp: 4200, name: '眠三' },
+  { pattern: /001110|011100|0101100|0010110/, self: 3200, opp: 5200, name: '潜在活三' },
 ]
 
 function indexOf(x: number, y: number): number {
@@ -101,7 +101,8 @@ export function evaluateBoardAt(board: Cell[], x: number, y: number, who: Player
 
   for (const [dx, dy] of DIRS) {
     const line: Cell[] = []
-    for (let offset = -4; offset <= 4; offset++) {
+    /* 11 格窗口，减少「三连贴边」时线段过短导致棋形漏检 */
+    for (let offset = -5; offset <= 5; offset++) {
       const xx = x + dx * offset
       const yy = y + dy * offset
       if (inBounds(xx, yy)) {
@@ -164,8 +165,74 @@ function generateMoveCandidates(
   return res.slice(0, limit)
 }
 
+function emptyHasNeighborStone(
+  b: Cell[],
+  x: number,
+  y: number,
+  stoneCount: number,
+  radius: number,
+): boolean {
+  if (stoneCount === 0) {
+    const c = (BOARD_SIZE - 1) / 2
+    return Math.abs(x - c) <= 1 && Math.abs(y - c) <= 1
+  }
+  for (let dy = -radius; dy <= radius; dy++) {
+    for (let dx = -radius; dx <= radius; dx++) {
+      if (dx === 0 && dy === 0) continue
+      const nx = x + dx
+      const ny = y + dy
+      if (inBounds(nx, ny) && b[indexOf(nx, ny)] !== 0) return true
+    }
+  }
+  return false
+}
+
+/**
+ * 黑方（人）在某一空点落子时的静态分最高的一点，即对方当前最想占的位置；
+ * 白棋应优先抢占以封堵连三、眠三、跳三及以上棋形（阈值见 HUMAN_THREAT_FORCE_BLOCK）。
+ */
+function findStrongestHumanThreatMove(board: Cell[]): ScoredMove | null {
+  const human = 1 as Player
+  let stoneCount = 0
+  for (let i = 0; i < board.length; i++) if (board[i] !== 0) stoneCount++
+
+  let best: ScoredMove | null = null
+  const radius = 3
+  for (let y = 0; y < BOARD_SIZE; y++) {
+    for (let x = 0; x < BOARD_SIZE; x++) {
+      if (board[indexOf(x, y)] !== 0) continue
+      if (!emptyHasNeighborStone(board, x, y, stoneCount, radius)) continue
+      const ev = evaluateBoardAt(board, x, y, human)
+      if (!best || ev.score > best.score) best = ev
+    }
+  }
+  return best
+}
+
+/**
+ * 若黑方「最佳应手点」静态分 ≥ 此阈值，白方直接占该点封堵（在「对方下一手成五」之后第二道防线）。
+ * 困难档：阈值高于活三(~7000)，仅冲四/活四/成五等仍「一步封堵」；活三及以下交给 minimax 在攻守间取舍，避免只会堵。
+ * 简易/普通仍积极挡三。
+ */
+const HUMAN_THREAT_FORCE_BLOCK: Record<Difficulty, number> = {
+  easy: 2200,
+  normal: 1500,
+  hard: 12000,
+}
+
+/** 困难档叶节点：压低对方好点、抬高己方好点，使搜索更愿意做连续进攻 */
+const HARD_MINIMAX_OPP_WEIGHT = 0.8
+const HARD_MINIMAX_MY_BOOST = 1.12
+
+/** 困难 hybrid：根下多搜一层，利于「先手连续」的规划感 */
+const HARD_HYBRID_MINIMAX_DEPTH = 4
+
 /** 叶节点：单遍邻域空点，同时算双方最强点，避免两次 generateMoveCandidates + 排序 */
-function staticEvalForAI(b: Cell[]): number {
+function staticEvalForAI(
+  b: Cell[],
+  oppThreatWeight = 1.08,
+  myScoreBoost = 1,
+): number {
   const ai = 2 as Player
   const opp = 1 as Player
   let stoneCount = 0
@@ -179,24 +246,7 @@ function staticEvalForAI(b: Cell[]): number {
     for (let x = 0; x < BOARD_SIZE; x++) {
       const idx = indexOf(x, y)
       if (b[idx] !== 0) continue
-
-      let hasNeighbor = false
-      if (stoneCount === 0) {
-        const c = (BOARD_SIZE - 1) / 2
-        if (Math.abs(x - c) <= 1 && Math.abs(y - c) <= 1) hasNeighbor = true
-      } else {
-        for (let dy = -radius; dy <= radius && !hasNeighbor; dy++) {
-          for (let dx = -radius; dx <= radius && !hasNeighbor; dx++) {
-            if (dx === 0 && dy === 0) continue
-            const nx = x + dx
-            const ny = y + dy
-            if (inBounds(nx, ny) && b[indexOf(nx, ny)] !== 0) {
-              hasNeighbor = true
-            }
-          }
-        }
-      }
-      if (!hasNeighbor) continue
+      if (!emptyHasNeighborStone(b, x, y, stoneCount, radius)) continue
 
       const em = evaluateBoardAt(b, x, y, ai)
       const eo = evaluateBoardAt(b, x, y, opp)
@@ -204,7 +254,8 @@ function staticEvalForAI(b: Cell[]): number {
       if (eo.score > opBest) opBest = eo.score
     }
   }
-  return myBest - opBest * 0.99
+  /* 默认略提高对方威胁权重；困难档配合 myScoreBoost / 更小 oppThreatWeight 偏进攻 */
+  return myBest * myScoreBoost - opBest * oppThreatWeight
 }
 
 const MM_WIN = 8_000_000
@@ -216,13 +267,15 @@ function minimaxAB(
   aiTurn: boolean,
   alpha: number,
   beta: number,
+  oppThreatWeight = 1.08,
+  myScoreBoost = 1,
 ): number {
-  if (depth === 0) return staticEvalForAI(b)
+  if (depth === 0) return staticEvalForAI(b, oppThreatWeight, myScoreBoost)
 
   const player: Player = aiTurn ? 2 : 1
   const branch = depth >= 3 ? 9 : depth >= 2 ? 11 : 13
   const moves = generateMoveCandidates(b, player, 3, branch)
-  if (!moves.length) return staticEvalForAI(b)
+  if (!moves.length) return staticEvalForAI(b, oppThreatWeight, myScoreBoost)
 
   const tieDepth = (4 - depth) * 120
 
@@ -233,7 +286,7 @@ function minimaxAB(
       const i = indexOf(m.x, m.y)
       nb[i] = player
       if (checkWin(nb, m.x, m.y, 2)) return MM_WIN - tieDepth
-      const ev = minimaxAB(nb, depth - 1, false, alpha, beta)
+      const ev = minimaxAB(nb, depth - 1, false, alpha, beta, oppThreatWeight, myScoreBoost)
       maxEval = Math.max(maxEval, ev)
       alpha = Math.max(alpha, ev)
       if (beta <= alpha) break
@@ -246,7 +299,7 @@ function minimaxAB(
     const nb = b.slice()
     nb[indexOf(m.x, m.y)] = player
     if (checkWin(nb, m.x, m.y, 1)) return MM_LOSS + tieDepth
-    const ev = minimaxAB(nb, depth - 1, true, alpha, beta)
+    const ev = minimaxAB(nb, depth - 1, true, alpha, beta, oppThreatWeight, myScoreBoost)
     minEval = Math.min(minEval, ev)
     beta = Math.min(beta, ev)
     if (beta <= alpha) break
@@ -254,7 +307,12 @@ function minimaxAB(
   return minEval
 }
 
-function pickBestMoveMinimax(board: Cell[], plyDepth: number): ScoredMove | null {
+function pickBestMoveMinimax(
+  board: Cell[],
+  plyDepth: number,
+  oppThreatWeight = 1.08,
+  myScoreBoost = 1,
+): ScoredMove | null {
   const ai = 2 as Player
   const moves = generateMoveCandidates(board, ai, 3, 12)
   if (!moves.length) return null
@@ -265,7 +323,7 @@ function pickBestMoveMinimax(board: Cell[], plyDepth: number): ScoredMove | null
     const nb = board.slice()
     nb[indexOf(m.x, m.y)] = ai
     if (checkWin(nb, m.x, m.y, ai)) return { ...m, score: 1e12, pattern: '立即成五' }
-    const sc = minimaxAB(nb, plyDepth - 1, false, MM_LOSS, MM_WIN)
+    const sc = minimaxAB(nb, plyDepth - 1, false, MM_LOSS, MM_WIN, oppThreatWeight, myScoreBoost)
     if (sc > bestScore) {
       bestScore = sc
       best = m
@@ -294,9 +352,13 @@ function playoutRandomOutcome(startBoard: Cell[], nextToMove: Player): 0 | 1 | 2
 /**
  * 困难档：先 α-β 得到若干强候选，再在根上做多局随机 rollout，按白方胜率加权选点（无网络，属 MCTS/自对弈中的 rollout 层）。
  */
-function pickBestMoveHardHybrid(board: Cell[]): ScoredMove | null {
+function pickBestMoveHardHybrid(
+  board: Cell[],
+  oppThreatWeight = HARD_MINIMAX_OPP_WEIGHT,
+  myScoreBoost = HARD_MINIMAX_MY_BOOST,
+): ScoredMove | null {
   const ai = 2 as Player
-  const moves = generateMoveCandidates(board, ai, 3, 12)
+  const moves = generateMoveCandidates(board, ai, 3, 14)
   if (!moves.length) return null
 
   const scored: { m: ScoredMove; sc: number }[] = []
@@ -304,15 +366,23 @@ function pickBestMoveHardHybrid(board: Cell[]): ScoredMove | null {
     const nb = board.slice()
     nb[indexOf(m.x, m.y)] = ai
     if (checkWin(nb, m.x, m.y, ai)) return { ...m, score: 1e12, pattern: '立即成五' }
-    const sc = minimaxAB(nb, 3, false, MM_LOSS, MM_WIN)
+    const sc = minimaxAB(
+      nb,
+      HARD_HYBRID_MINIMAX_DEPTH,
+      false,
+      MM_LOSS,
+      MM_WIN,
+      oppThreatWeight,
+      myScoreBoost,
+    )
     scored.push({ m, sc })
   }
   scored.sort((a, b) => b.sc - a.sc)
 
   const bestSc = scored[0]!.sc
-  /** 与最优解接近的候选才做多局模拟，避免全盘 rollout 爆时间 */
-  const band = 220_000
-  const contenders = scored.filter((s) => s.sc >= bestSc - band).slice(0, 4)
+  /** 与最优解接近的候选才做多局模拟；带宽略增以纳入更多「攻」型候选 */
+  const band = 320_000
+  const contenders = scored.filter((s) => s.sc >= bestSc - band).slice(0, 5)
   if (contenders.length <= 1) {
     return contenders[0]!.m
   }
@@ -444,6 +514,22 @@ export function chooseAIMove(board: Cell[], difficulty: Difficulty): ScoredMove 
     return threatBlocks[0]
   }
 
+  const humanBest = findStrongestHumanThreatMove(board)
+  const blockThr = HUMAN_THREAT_FORCE_BLOCK[difficulty]
+  if (humanBest && humanBest.score >= blockThr) {
+    const i = indexOf(humanBest.x, humanBest.y)
+    if (board[i] === 0) {
+      const placed = evaluateBoardAt(board, humanBest.x, humanBest.y, ai)
+      return {
+        ...placed,
+        score: placed.score + humanBest.score * 0.15,
+        pattern: humanBest.pattern
+          ? `封堵（${humanBest.pattern}）`
+          : '封堵对方强点',
+      }
+    }
+  }
+
   if (difficulty === 'easy') {
     return pickEasySoftmaxSample(candidates)
   }
@@ -454,6 +540,8 @@ export function chooseAIMove(board: Cell[], difficulty: Difficulty): ScoredMove 
     return pick ?? candidates[0]
   }
 
-  const pick = pickBestMoveHardHybrid(board) ?? pickBestMoveMinimax(board, 4)
+  const pick =
+    pickBestMoveHardHybrid(board, HARD_MINIMAX_OPP_WEIGHT, HARD_MINIMAX_MY_BOOST) ??
+    pickBestMoveMinimax(board, 5, HARD_MINIMAX_OPP_WEIGHT, HARD_MINIMAX_MY_BOOST)
   return pick ?? candidates[0]
 }

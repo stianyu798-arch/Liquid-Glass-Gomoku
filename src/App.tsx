@@ -8,6 +8,7 @@ import {
   useState,
   startTransition,
 } from 'react'
+import { createPortal } from 'react-dom'
 import { chooseAIMove, evaluateBoardAt, pickBestHumanHintMove, type ScoredMove } from './ai/engine'
 import './App.css'
 
@@ -58,6 +59,15 @@ function scoresFromMoves(moves: MoveRecord[]): { you: number; ai: number } {
 }
 
 const HISTORY_KEY = 'gomoku_history_v1'
+
+/** 本地日历日 YYYY-MM-DD，用于历史按日筛选 */
+function toLocalYMD(ts: number): string {
+  const d = new Date(ts)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
 
 const BOARD_SIZE = 15
 const WIN_COUNT = 5
@@ -1454,6 +1464,7 @@ function PatternPreview({
 
 function App() {
   type ViewMode = 'play' | 'history' | 'catalog'
+  const historyDateFilterInputId = useId()
   const [viewMode, setViewMode] = useState<ViewMode>('play')
 
   const [board, setBoard] = useState<Cell[]>(() => createEmptyBoard())
@@ -1589,6 +1600,10 @@ function App() {
   const [historySelectedIds, setHistorySelectedIds] = useState<string[]>([])
   /** 删除记录模式：显示多选框与工具条，卡片右移 */
   const [historyDeleteMode, setHistoryDeleteMode] = useState(false)
+  /** 历史列表：按本地日期筛选（YYYY-MM-DD），空字符串表示不过滤 */
+  const [historyDateFilter, setHistoryDateFilter] = useState('')
+  const [historyPage, setHistoryPage] = useState(1)
+  const [historyPageSize, setHistoryPageSize] = useState(8)
   /** 人机 / 历史 / 招式切换时主区动效 */
   const [viewSwitchAnim, setViewSwitchAnim] = useState(false)
   const [replayStep, setReplayStep] = useState<number>(0)
@@ -1863,6 +1878,36 @@ function App() {
     if (!g) return { you: 0, ai: 0 }
     return scoresFromMoves(g.moves.slice(0, replayStep))
   }, [viewMode, moveHistory, historyGames, selectedHistoryIndex, replayStep])
+
+  /** 历史列表：可选按本地日过滤，新→旧 */
+  const historyFilteredSorted = useMemo(() => {
+    let arr = historyGames.map((g, originalIndex) => ({ g, originalIndex }))
+    if (historyDateFilter) {
+      arr = arr.filter(({ g }) => toLocalYMD(g.createdAt) === historyDateFilter)
+    }
+    arr.sort((a, b) => b.g.createdAt - a.g.createdAt)
+    return arr
+  }, [historyGames, historyDateFilter])
+
+  const historyTotalPages = useMemo(
+    () => Math.max(1, Math.ceil(historyFilteredSorted.length / historyPageSize)),
+    [historyFilteredSorted.length, historyPageSize],
+  )
+
+  const historyPageSafe = Math.min(Math.max(1, historyPage), historyTotalPages)
+
+  const historyPageSlice = useMemo(() => {
+    const start = (historyPageSafe - 1) * historyPageSize
+    return historyFilteredSorted.slice(start, start + historyPageSize)
+  }, [historyFilteredSorted, historyPageSafe, historyPageSize])
+
+  useEffect(() => {
+    setHistoryPage(1)
+  }, [historyDateFilter, historyPageSize])
+
+  useEffect(() => {
+    setHistoryPage((p) => Math.min(p, historyTotalPages))
+  }, [historyTotalPages])
 
   const catalogDemoTemplate = useMemo(() => {
     if (viewMode !== 'catalog' || !catalogDetailId) return null
@@ -2917,7 +2962,7 @@ function App() {
                   className={`difficulty-opt ${difficulty === 'easy' ? 'difficulty-opt--active' : ''}`}
                   onClick={() => applyDifficultyChange('easy')}
                   aria-pressed={difficulty === 'easy'}
-                  title="候选点按局面分 softmax 温度抽样（弱于总选最强）"
+                  title="必赢必防处认真下，其余带随机；有落子提示光"
                 >
                   简单
                 </button>
@@ -2926,7 +2971,7 @@ function App() {
                   className={`difficulty-opt ${difficulty === 'normal' ? 'difficulty-opt--active' : ''}`}
                   onClick={() => applyDifficultyChange('normal')}
                   aria-pressed={difficulty === 'normal'}
-                  title="α-β 剪枝，搜索深度高于简单档"
+                  title="比简单多看几步棋，整体更强；无提示"
                 >
                   普通
                 </button>
@@ -2935,7 +2980,7 @@ function App() {
                   className={`difficulty-opt ${difficulty === 'hard' ? 'difficulty-opt--active' : ''}`}
                   onClick={() => applyDifficultyChange('hard')}
                   aria-pressed={difficulty === 'hard'}
-                  title="α-β 搜索 + 根节点蒙特卡洛 rollout 加权（无神经网络）"
+                  title="深算并在多点模拟后再选，最难档；无提示"
                 >
                   困难
                 </button>
@@ -3264,10 +3309,10 @@ function App() {
                 </div>
                 <p className="play-side-desc">
                   {difficulty === 'easy'
-                    ? '简单：AI 在必胜/必防后，按局面分数对候选点做 softmax 温度抽样（弱于总选最强点）；提示光仅按静态估值推荐。'
+                    ? '简单：在必赢、必防时不会乱下；其它局面带点随机，不总选最强应手，更像陪练。本档有落子提示光。'
                     : difficulty === 'hard'
-                      ? '困难：α-β 搜索后，在若干强候选上做蒙特卡洛随机模拟（rollout）加权选点，与 MCTS/强化学习文献中的模拟层思想一致；无神经网络。详见「关于本作」。'
-                      : '普通：α-β 剪枝、比简单更深的搜索；仅记录招式与分数，无提示光。'}
+                      ? '困难：AI 想得最深，还会在多个候选好点里再模拟、再取舍，整体最难对付；无提示。更多说明见「关于本作」。'
+                      : '普通：比简单「多看几步棋」，应手更稳、更难缠；本局只记招式与分数，无提示光。'}
                 </p>
               </header>
               <div className="panel-section play-side-moves">
@@ -3326,6 +3371,8 @@ function App() {
                   el.closest('button') ||
                   el.closest('input') ||
                   el.closest('label') ||
+                  el.closest('select') ||
+                  el.closest('.history-list-controls') ||
                   el.closest('.replay-controls') ||
                   el.closest('.replay-slider') ||
                   el.closest('.history-card') ||
@@ -3340,7 +3387,7 @@ function App() {
                   <div className="history-header-text">
                   <div className="panel-title">历史查看</div>
                   <div className="panel-sub">
-                    未选卡片时对抗条为全部对局累计；点卡片看终局，拖条或播放看分数变化
+                    未选卡片时对抗条为全部对局累计；点卡片看终局，拖条或播放看分数变化。可按日期筛选，列表支持分页。
                   </div>
                 </div>
                 {historyGames.length > 0 && (
@@ -3388,82 +3435,161 @@ function App() {
                 </div>
               </div>
 
+              {historyGames.length > 0 ? (
+                <div
+                  className="history-list-controls"
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => e.stopPropagation()}
+                >
+                  <div className="history-filter-row">
+                    <label className="history-filter-label" htmlFor={historyDateFilterInputId}>
+                      <span className="history-filter-text">按日期</span>
+                      <input
+                        id={historyDateFilterInputId}
+                        type="date"
+                        className="history-date-input"
+                        value={historyDateFilter}
+                        onChange={(e) => setHistoryDateFilter(e.target.value)}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="pill history-filter-clear"
+                      disabled={!historyDateFilter}
+                      onClick={() => setHistoryDateFilter('')}
+                    >
+                      清除日期
+                    </button>
+                  </div>
+                  <div className="history-pagination-row">
+                    <label className="history-page-size-label">
+                      <span>每页</span>
+                      <select
+                        className="history-page-size-select"
+                        value={historyPageSize}
+                        onChange={(e) => setHistoryPageSize(Number(e.target.value))}
+                        aria-label="每页条数"
+                      >
+                        <option value={8}>8</option>
+                        <option value={15}>15</option>
+                        <option value={30}>30</option>
+                      </select>
+                    </label>
+                    <div className="history-pagination-actions">
+                      <button
+                        type="button"
+                        className="pill"
+                        disabled={historyPageSafe <= 1}
+                        onClick={() =>
+                          setHistoryPage((p) => {
+                            const cur = Math.min(Math.max(1, p), historyTotalPages)
+                            return Math.max(1, cur - 1)
+                          })
+                        }
+                        aria-label="上一页"
+                      >
+                        上一页
+                      </button>
+                      <span className="history-page-indicator" aria-live="polite">
+                        第 {historyPageSafe} / {historyTotalPages} 页 · 共{' '}
+                        {historyFilteredSorted.length} 条
+                        {historyDateFilter ? `（已筛选 ${historyDateFilter}）` : ''}
+                      </span>
+                      <button
+                        type="button"
+                        className="pill"
+                        disabled={historyPageSafe >= historyTotalPages}
+                        onClick={() =>
+                          setHistoryPage((p) => {
+                            const cur = Math.min(Math.max(1, p), historyTotalPages)
+                            return Math.min(historyTotalPages, cur + 1)
+                          })
+                        }
+                        aria-label="下一页"
+                      >
+                        下一页
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
               <div className="history-list">
                 {historyGames.length === 0 ? (
                   <div className="empty">
                     暂无历史对局（完成一局后会自动保存）
                   </div>
+                ) : historyFilteredSorted.length === 0 ? (
+                  <div className="empty">
+                    该日期暂无对局，请更换日期或清除筛选
+                  </div>
                 ) : (
-                  historyGames
-                    .slice()
-                    .reverse()
-                    .map((g, revIdx) => {
-                      const realIdx = historyGames.length - 1 - revIdx
-                      const selected =
-                        selectedHistoryIndex >= 0 && realIdx === selectedHistoryIndex
-                      const checked = historySelectedIds.includes(g.id)
-                      const resultClass =
-                        g.winner === 1
-                          ? 'history-result--win'
-                          : g.winner === 2
-                            ? 'history-result--lose'
-                            : 'history-result--draw'
-                      const endScores = scoresFromMoves(g.moves)
-                      return (
+                  historyPageSlice.map(({ g, originalIndex: realIdx }) => {
+                    const selected =
+                      selectedHistoryIndex >= 0 && realIdx === selectedHistoryIndex
+                    const checked = historySelectedIds.includes(g.id)
+                    const resultClass =
+                      g.winner === 1
+                        ? 'history-result--win'
+                        : g.winner === 2
+                          ? 'history-result--lose'
+                          : 'history-result--draw'
+                    const endScores = scoresFromMoves(g.moves)
+                    return (
+                      <div
+                        key={g.id}
+                        className={`history-card-row ${
+                          selected ? 'history-card-row-selected' : ''
+                        }`}
+                      >
                         <div
-                          key={g.id}
-                          className={`history-card-row ${
-                            selected ? 'history-card-row-selected' : ''
+                          className={`history-card-cb-shell ${
+                            historyDeleteMode ? 'history-card-cb-shell--on' : ''
                           }`}
+                          aria-hidden={!historyDeleteMode}
                         >
-                          <div
-                            className={`history-card-cb-shell ${
-                              historyDeleteMode ? 'history-card-cb-shell--on' : ''
-                            }`}
-                            aria-hidden={!historyDeleteMode}
-                          >
-                            {historyDeleteMode ? (
-                              <input
-                                type="checkbox"
-                                className="history-card-cb"
-                                checked={checked}
-                                onChange={() => toggleHistorySelect(g.id)}
-                                aria-label={`选择记录 ${new Date(g.createdAt).toLocaleString()}`}
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                            ) : null}
-                          </div>
-                          <button
-                            type="button"
-                            className={`history-card ${
-                              selected ? 'history-card-selected' : ''
-                            }`}
-                            onClick={() => {
-                              setSelectedHistoryIndex(realIdx)
-                              setReplayStep(g.moves.length)
-                              setReplayPlaying(false)
-                            }}
-                          >
-                            <div className="history-card-top">
-                              <span className="history-time">
-                                {new Date(g.createdAt).toLocaleString()}
-                              </span>
-                              <span className={`history-result ${resultClass}`}>
-                                {g.winner === 1
-                                  ? '您赢了'
-                                  : g.winner === 2
-                                    ? '您输了'
-                                    : '和局'}
-                              </span>
-                            </div>
-                            <div className="history-card-sub">
-                              难度：{g.difficulty} · 手数：{g.moves.length} · 你{' '}
-                              {endScores.you} · AI {endScores.ai}
-                            </div>
-                          </button>
+                          {historyDeleteMode ? (
+                            <input
+                              type="checkbox"
+                              className="history-card-cb"
+                              checked={checked}
+                              onChange={() => toggleHistorySelect(g.id)}
+                              aria-label={`选择记录 ${new Date(g.createdAt).toLocaleString()}`}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          ) : null}
                         </div>
-                      )
-                    })
+                        <button
+                          type="button"
+                          className={`history-card ${
+                            selected ? 'history-card-selected' : ''
+                          }`}
+                          onClick={() => {
+                            setSelectedHistoryIndex(realIdx)
+                            setReplayStep(g.moves.length)
+                            setReplayPlaying(false)
+                          }}
+                        >
+                          <div className="history-card-top">
+                            <span className="history-time">
+                              {new Date(g.createdAt).toLocaleString()}
+                            </span>
+                            <span className={`history-result ${resultClass}`}>
+                              {g.winner === 1
+                                ? '您赢了'
+                                : g.winner === 2
+                                  ? '您输了'
+                                  : '和局'}
+                            </span>
+                          </div>
+                          <div className="history-card-sub">
+                            难度：{g.difficulty} · 手数：{g.moves.length} · 你{' '}
+                            {endScores.you} · AI {endScores.ai}
+                          </div>
+                        </button>
+                      </div>
+                    )
+                  })
                 )}
               </div>
 
@@ -4000,77 +4126,84 @@ function App() {
         </div>
       )}
 
-      {aboutVisible && (
-        <div
-          className={`about-modal-root ${aboutLeaving ? 'about-modal-root--leave' : ''}`}
-          role="presentation"
-          onClick={closeAbout}
-        >
+      {aboutVisible &&
+        createPortal(
           <div
-            className={`about-modal-card ${
-              aboutLeaving ? 'about-modal-card--leave' : 'about-modal-card--enter'
-            }`}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="about-modal-title"
-            onClick={(e) => e.stopPropagation()}
+            className={`about-modal-root ${aboutLeaving ? 'about-modal-root--leave' : ''}`}
+            role="presentation"
+            onClick={closeAbout}
           >
-            <button
-              type="button"
-              className="about-modal-close"
-              onClick={closeAbout}
-              aria-label="关闭"
+            <div
+              className={`about-modal-card ${
+                aboutLeaving ? 'about-modal-card--leave' : 'about-modal-card--enter'
+              }`}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="about-modal-title"
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                boxSizing: 'border-box',
+                flexShrink: 0,
+                width: 'min(1280px, 94vw)',
+                maxWidth: 1280,
+              }}
             >
-              ×
-            </button>
-            <h2 id="about-modal-title" className="about-modal-title">
-              关于本作
-            </h2>
-            <div className="about-modal-body">
-              <h3 className="about-modal-subtitle">创作想法</h3>
-              <p className="about-modal-text">
-                希望用浏览器实现一套偏「Liquid Glass」质感的五子棋界面：深色背景上的磨砂玻璃、柔光与清晰的操作区，让人机对弈、历史回放与招式导读集中在同一块画布中。在规则简明的前提下，将棋形识别、多档难度与棋谱复习做成顺手的单页体验，并作为练习现代 CSS 与 React 状态管理的一次实践。
-              </p>
-              <h3 className="about-modal-subtitle">AI 与参考实现</h3>
-              <p className="about-modal-text">
-                <strong>简单</strong>：在必胜/必防之后，对候选点按局面启发分做 <strong>softmax 温度抽样</strong>
-                （常见弱棋力随机策略，优于均匀瞎选）。<strong>普通</strong>：<strong>α-β</strong>，搜索深度高于简单档。
-                <strong>困难</strong>：更深 α-β 后在多强候选上做<strong>蒙特卡洛 rollout</strong>
-                加权（近 MCTS 模拟层，<strong>无</strong>神经网络）。源码见 <code>src/ai/engine.ts</code>
-                ，白方在 Web Worker 中思考。
-              </p>
-              <p className="about-modal-text">
-                若关注<strong>基于深度强化学习的五子棋 AI 框架</strong>（MCTS、PPO、策略–价值网络等），可参考社区开源项目{' '}
-                <a href="https://github.com/guokezhen999/gomoku_rl" target="_blank" rel="noopener noreferrer">
-                  guokezhen999/gomoku_rl
-                </a>
-                （Python / PyTorch，自述为深度强化学习方向；与本作前端搜索实现相互独立，供算法与工程延伸）。
-              </p>
-              <p className="about-modal-text">
-                经典<strong>α-β 剪枝</strong>五子棋 AI 与教程可参考{' '}
-                <a href="https://github.com/lihongxun945/gobang" target="_blank" rel="noopener noreferrer">
-                  lihongxun945/gobang
-                </a>
-                （JavaScript；作者说明为传统搜索、<strong>非</strong>神经网络，适合对照阅读）。
-              </p>
-              <dl className="about-meta">
-                <div className="about-meta-row">
-                  <dt>创作时间</dt>
-                  <dd>2026年4月11日</dd>
-                </div>
-                <div className="about-meta-row">
-                  <dt>创作人</dt>
-                  <dd>石天宇</dd>
-                </div>
-                <div className="about-meta-row">
-                  <dt>创作工具</dt>
-                  <dd>DeepSeek、Cursor</dd>
-                </div>
-              </dl>
+              <button
+                type="button"
+                className="about-modal-close"
+                onClick={closeAbout}
+                aria-label="关闭"
+              >
+                ×
+              </button>
+              <h2 id="about-modal-title" className="about-modal-title">
+                关于本作
+              </h2>
+              <div className="about-modal-body">
+                <h3 className="about-modal-subtitle">创作想法</h3>
+                <p className="about-modal-text">
+                  希望用浏览器实现一套偏「Liquid Glass」质感的五子棋界面：深色背景上的磨砂玻璃、柔光与清晰的操作区，让人机对弈、历史回放与招式导读集中在同一块画布中。在规则简明的前提下，将棋形识别、多档难度与棋谱复习做成顺手的单页体验，并作为练习现代 CSS 与 React 状态管理的一次实践。
+                </p>
+                <h3 className="about-modal-subtitle">AI 与参考实现</h3>
+                <p className="about-modal-text">
+                  <strong>简单</strong>：该赢、该挡时不含糊；其它时候带点随机，不总下最强点，适合入门，并有落子提示。
+                  <strong>普通</strong>：比简单多想几步，更难缠；无提示。
+                  <strong>困难</strong>：想得最深，还会在几个好点里再模拟几手棋来挑点，整体最强（仍无神经网络）。
+                  具体算法见 <code>src/ai/engine.ts</code>；白方在 Web Worker 里算棋，避免卡住界面。
+                </p>
+                <p className="about-modal-text">
+                  若关注<strong>基于深度强化学习的五子棋 AI 框架</strong>（MCTS、PPO、策略–价值网络等），可参考社区开源项目{' '}
+                  <a href="https://github.com/guokezhen999/gomoku_rl" target="_blank" rel="noopener noreferrer">
+                    guokezhen999/gomoku_rl
+                  </a>
+                  （Python / PyTorch，自述为深度强化学习方向；与本作前端搜索实现相互独立，供算法与工程延伸）。
+                </p>
+                <p className="about-modal-text">
+                  经典<strong>α-β 剪枝</strong>五子棋 AI 与教程可参考{' '}
+                  <a href="https://github.com/lihongxun945/gobang" target="_blank" rel="noopener noreferrer">
+                    lihongxun945/gobang
+                  </a>
+                  （JavaScript；作者说明为传统搜索、<strong>非</strong>神经网络，适合对照阅读）。
+                </p>
+                <dl className="about-meta">
+                  <div className="about-meta-row">
+                    <dt>创作时间</dt>
+                    <dd>2026年4月11日</dd>
+                  </div>
+                  <div className="about-meta-row">
+                    <dt>创作人</dt>
+                    <dd>石天宇</dd>
+                  </div>
+                  <div className="about-meta-row">
+                    <dt>创作工具</dt>
+                    <dd>TRAE、DeepSeek、Kimi</dd>
+                  </div>
+                </dl>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }

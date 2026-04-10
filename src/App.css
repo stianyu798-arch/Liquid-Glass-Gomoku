@@ -464,14 +464,18 @@
   line-height: 1;
 }
 
-/* 关于本作弹层 */
+/* 关于本作弹层：Portal 挂 body + flex 居中；z-index 拉高避免被棋盘/玻璃层盖住 */
 .about-modal-root {
   position: fixed;
   inset: 0;
-  z-index: 100;
-  display: grid;
-  place-items: center;
-  padding: 20px;
+  z-index: 5000;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 12px;
+  box-sizing: border-box;
   background: rgba(2, 6, 15, 0.72);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
@@ -489,8 +493,14 @@
 
 .about-modal-card {
   position: relative;
-  width: min(440px, 100%);
-  max-height: min(86vh, 640px);
+  flex: 0 0 auto;
+  align-self: center;
+  /* 大屏加宽至 1280；小屏占视口 94%。!important 防止其它规则意外压窄 */
+  width: min(1280px, 94vw) !important;
+  max-width: 1280px !important;
+  min-width: 0;
+  /* 用视口高度约束，勿再设过低像素上限，否则易在卡片内出现滚动条 */
+  max-height: 96vh;
   overflow: auto;
   padding: 22px 22px 20px;
   border-radius: 22px;
@@ -590,7 +600,7 @@
 }
 
 .about-modal-title {
-  margin: 0 36px 14px 0;
+  margin: 0 36px 12px 0;
   font-size: 20px;
   font-weight: 800;
   letter-spacing: 0.04em;
@@ -601,7 +611,7 @@
 }
 
 .about-modal-subtitle {
-  margin: 0 0 10px;
+  margin: 0 0 8px;
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.12em;
@@ -611,9 +621,9 @@
 }
 
 .about-modal-text {
-  margin: 0 0 18px;
+  margin: 0 0 14px;
   font-size: 14px;
-  line-height: 1.75;
+  line-height: 1.62;
   color: rgba(226, 232, 240, 0.92);
 }
 
@@ -637,7 +647,7 @@
 
 .about-meta {
   margin: 0;
-  padding: 14px 0 0;
+  padding: 12px 0 0;
   border-top: 1px solid rgba(148, 163, 184, 0.22);
 }
 
@@ -1015,7 +1025,6 @@
   min-height: min-content;
 }
 
-/* 勿为招式大全单独改列宽，否则切换 tab 时棋盘列与侧栏列比例跳动，无法与其它模式对齐 */
 .main-layout .main-top-row > .board-zone {
   align-self: stretch;
   width: 100%;
@@ -1176,11 +1185,16 @@
 }
 
 /*
- * 正方形棋盘：列内 width:100%（百分比随侧栏比例变）；上限用固定 chrome 预留 + dvh，不用 vw。
+ * 正方形棋盘：列内 width:100%；边长取 min(列宽, 视口高−chrome, 视口宽−左右内边距)，
+ * 避免横屏时仅用 dvh−chrome 把棋盘压到极窄；也避免超出可视宽度。
  */
 .board-wrap {
   width: 100%;
-  max-width: min(100%, calc(100dvh - var(--app-chrome-y)));
+  max-width: min(
+    100%,
+    calc(100dvh - var(--app-chrome-y)),
+    calc(100vw - 2 * var(--layout-pad-x))
+  );
   margin-inline: auto;
   aspect-ratio: 1 / 1;
   box-sizing: border-box;
@@ -1275,6 +1289,9 @@
   width: 100%;
   height: 100%;
   box-sizing: border-box;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
   /* 单格宽度，供交叉点、棋子与网格随棋盘缩放 */
   --cellPx: calc((var(--boardPx, 640px) - 36px) / 14);
   /*
@@ -1355,6 +1372,8 @@
   padding: 0;
   background: transparent;
   cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .pt:focus-visible {
@@ -2684,6 +2703,99 @@
   margin-bottom: 0;
 }
 
+/* 历史：日期筛选 + 分页 */
+.history-list-controls {
+  margin-top: 12px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.history-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.history-filter-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: rgba(226, 232, 240, 0.88);
+  cursor: pointer;
+  user-select: none;
+}
+
+.history-filter-text {
+  flex-shrink: 0;
+}
+
+.history-date-input {
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.75);
+  color: rgba(226, 232, 240, 0.95);
+  color-scheme: dark;
+  min-height: 32px;
+  box-sizing: border-box;
+}
+
+.history-filter-clear {
+  font-size: 12px;
+  padding: 6px 12px;
+}
+
+.history-pagination-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 12px;
+}
+
+.history-page-size-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: rgba(226, 232, 240, 0.85);
+}
+
+.history-page-size-select {
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.85);
+  color: rgba(226, 232, 240, 0.95);
+  color-scheme: dark;
+  cursor: pointer;
+  min-height: 32px;
+}
+
+.history-pagination-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  justify-content: flex-end;
+  min-width: min(100%, 220px);
+}
+
+.history-page-indicator {
+  font-size: 11px;
+  color: rgba(186, 198, 224, 0.82);
+  line-height: 1.35;
+  text-align: right;
+  max-width: min(100%, 280px);
+}
+
 .history-list {
   margin-top: 10px;
   max-height: min(340px, 42vh);
@@ -3002,7 +3114,11 @@
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  /* 允许整栏纵向滚动，避免窄屏下底部「招式说明 / 续弈」被父级 overflow:hidden 裁掉 */
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   border-radius: 18px;
   padding: 14px 14px 16px;
   background: rgba(15, 23, 42, 0.55);
@@ -3117,8 +3233,8 @@
 }
 
 .catalog-footer {
-  /* 与卡片区争高时让出空间，避免底部说明把卡片区压到 0；内容靠内部滚动 */
-  flex-shrink: 1;
+  /* 底部说明与续弈按钮须完整可见，勿与卡片区争高时被压扁裁切 */
+  flex-shrink: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -3126,7 +3242,11 @@
   margin-top: 16px;
   padding-top: 14px;
   border-top: 1px solid rgba(148, 163, 184, 0.14);
-  overflow: hidden;
+  overflow: visible;
+}
+
+.catalog-footer-summary {
+  flex-shrink: 0;
 }
 
 .catalog-footer-summary-top {
@@ -3256,7 +3376,7 @@
 }
 
 .catalog-detail-desc-bar {
-  flex-shrink: 1;
+  flex-shrink: 0;
   flex-grow: 0;
   margin-top: 0;
   padding: 11px 12px 12px;
@@ -3292,6 +3412,7 @@
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid rgba(148, 163, 184, 0.14);
+  flex-shrink: 0;
   animation: catalogContinueBarReveal 0.52s cubic-bezier(0.2, 0.85, 0.28, 1) both;
 }
 
@@ -4066,8 +4187,8 @@
 @media (max-width: 960px) {
   :root {
     --layout-pad-x: 12px;
-    /* 单列布局下略减纵向预留，避免棋盘被挤得过小（仍偏保守防溢出） */
-    --app-chrome-y: 292px;
+    /* 单列布局：略减顶栏/底栏预留，让棋盘在竖屏下更大一格，减轻交叉点过密、误触 */
+    --app-chrome-y: 268px;
   }
 
   .app-shell {
@@ -4175,11 +4296,17 @@
   }
 
   .main-layout.view-catalog .catalog-list-scroll {
-    min-height: clamp(120px, 32vmin, 380px);
+    /* 为底部说明/续弈留出竖向空间，避免 flex 把 footer 挤没 */
+    min-height: clamp(72px, 22vmin, 240px);
   }
 
   .catalog-detail-desc-bar {
-    max-height: min(30vh, 180px);
+    /* 略增高说明区可滚动高度，减轻「招式说明」标题与正文被外缘裁切的观感 */
+    max-height: min(46vh, 260px);
+  }
+
+  .catalog-footer {
+    padding-bottom: max(4px, env(safe-area-inset-bottom, 0px));
   }
 
   .catalog-header {
@@ -4320,7 +4447,25 @@
   }
 
   .board-wrap {
-    max-width: min(100%, calc(100svh - var(--app-chrome-y)), calc(100dvh - var(--app-chrome-y)));
+    max-width: min(
+      100%,
+      calc(100svh - var(--app-chrome-y)),
+      calc(100dvh - var(--app-chrome-y)),
+      calc(100vw - 2 * var(--layout-pad-x))
+    );
+  }
+
+  /* 略减玻璃内边距，让网格区域更大（与极窄屏 360 断点一致思路） */
+  .main-layout .board-zone .board-container {
+    padding: 15px;
+  }
+
+  /* 触控屏：落子点略放大上限，便于粗手指点按（仍由 clamp 上限避免盖住过多邻格） */
+  @media (pointer: coarse) {
+    .pt {
+      width: clamp(28px, calc(var(--cellPx) * 1.78), 42px);
+      height: clamp(28px, calc(var(--cellPx) * 1.78), 42px);
+    }
   }
 }
 
@@ -4329,7 +4474,8 @@
   :root {
     --layout-section-gap: 12px;
     --main-to-footer-gap: clamp(4px, 1.2vh, 10px);
-    --app-chrome-y: 252px;
+    /* 横屏 dvh 很小，chrome 须同步压低，否则棋盘 max-width 被 dvh−y 卡死（过窄、易误触） */
+    --app-chrome-y: 140px;
   }
 
   .app-shell {
