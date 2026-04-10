@@ -1462,6 +1462,8 @@ function App() {
   const [winner, setWinner] = useState<Player | 0>(0)
   const [winLine, setWinLine] = useState<[number, number][]>([])
   const [moveHistory, setMoveHistory] = useState<MoveRecord[]>([])
+  /** 每局人机对弈可用悔棋次数（重新开局时恢复为 3） */
+  const [undosRemaining, setUndosRemaining] = useState(3)
   /** 上一手失去「最后」标记后仍独立播完余晖光效，避免被下一手打断 */
   const [stoneAfterglowKeys, setStoneAfterglowKeys] = useState(() => new Set<string>())
   const playLastPosRef = useRef<{ x: number; y: number } | null>(null)
@@ -1985,7 +1987,6 @@ function App() {
   const syncSidePanelHeight = () => {
     const vm = viewModeRef.current
     const zone = boardZoneRef.current
-    const row = mainTopRowRef.current
     if (!zone) return
     const bMeas = boardMeasureRef.current
     const wEl = boardWrapRef.current
@@ -1999,9 +2000,15 @@ function App() {
     }
 
     /*
-     * 历史：侧栏高度取行盒与棋盘外包的较大值。
+     * 历史：勿给 aside 锁像素高。旧逻辑用 max(行盒, 棋盘) 会在长屏/栅格反馈下把行盒撑得极高，玻璃 height:100% 在对抗条下出现大块空白。
+     * 改为高度 0 → 不施加行内 height，侧栏随内容结束在对抗条下方。
      * 招式大全：必须以左侧整列 section.board-zone 的外缘高度为准，与棋盘玻璃外框底边对齐，避免右栏偏矮裁切底部。
      */
+    if (vm === 'history') {
+      setBoardWrapOuterHeight(0)
+      return
+    }
+
     if (vm === 'catalog') {
       const wrapH = wEl ? wEl.offsetHeight : 0
       const zoneBox = zone.getBoundingClientRect()
@@ -2010,32 +2017,12 @@ function App() {
       return
     }
 
-    if (vm === 'history') {
-      if (row && row.clientHeight > 0) {
-        const wrapH = wEl ? wEl.offsetHeight : 0
-        setBoardWrapOuterHeight(Math.max(row.clientHeight, wrapH))
-        return
-      }
-      const wrapH = wEl ? wEl.offsetHeight : 0
-      const zoneH = Math.max(
-        zone.offsetHeight,
-        Math.round(zone.getBoundingClientRect().height),
-      )
-      setBoardWrapOuterHeight(Math.max(0, Math.round(Math.max(wrapH, zoneH))))
-      return
-    }
-
-    const zInt = zone.offsetHeight
-    const zSub = Math.ceil(zone.getBoundingClientRect().height)
     const wrapH = wEl ? wEl.offsetHeight : 0
 
-    // 人机对弈：勿用整行 clientHeight，招式板列表会把行撑高，导致右侧玻璃异常长于棋盘
+    // 人机对弈：侧栏高度仅与左侧 .board-wrap（内含 .board-container）外缘一致，底边与棋盘玻璃对齐。
+    // 勿用 section.board-zone / 整行高度：招式列表等曾会把 zone 或行盒撑高，旧逻辑用 zone 与 wrap 的差值截断侧栏，反而与棋盘底缘错位。
     if (vm === 'play') {
-      const zoneH = Math.max(zSub, zInt)
-      const zPlay =
-        wrapH > 0 && zoneH > wrapH + 80 ? Math.min(zoneH, wrapH + 48) : zoneH
-      const h = Math.max(zPlay, wrapH)
-      setBoardWrapOuterHeight(Math.max(0, h))
+      setBoardWrapOuterHeight(Math.max(0, wrapH))
       return
     }
   }
@@ -2210,6 +2197,7 @@ function App() {
     importSimActiveRef.current = false
     setImportOpponentIntro(false)
     pendingYourTurnFlashAfterAiRef.current = false
+    setUndosRemaining(3)
   }
 
   const replayImportSamePosition = useCallback(() => {
@@ -2226,6 +2214,7 @@ function App() {
     if (last) setFocus({ x: last.x, y: last.y })
     setHintTarget(null)
     setPatternImportSession({ patternId: sess.patternId, phase: 'ready' })
+    setUndosRemaining(3)
     if (np === 2) {
       pendingYourTurnFlashAfterAiRef.current = true
       flashImportOpponentFirst()
@@ -2300,10 +2289,66 @@ function App() {
       setPatternImportSession({ patternId: pid, phase })
       setSessionId(String(Date.now()))
       savedForSessionRef.current = null
+      setUndosRemaining(3)
       return
     }
 
     handleReset()
+  }
+
+  /** 悔棋：轮到你且未终局时撤销「上一手黑 + 上一手白」共两步；轮到 AI 或终局时只撤销一步。每局共 3 次。 */
+  const handleUndo = () => {
+    if (viewMode !== 'play') return
+    if (patternImportSession?.phase === 'simulating') return
+    if (undosRemaining <= 0) return
+
+    const h = moveHistory
+    const minLen =
+      patternImportSession?.phase === 'ready' && importSnapshotRef.current
+        ? importSnapshotRef.current.moves.length
+        : 0
+    if (h.length <= minLen) return
+
+    const needTwo = winner === 0 && currentPlayer === 1
+    const pops = needTwo ? 2 : 1
+    if (h.length - pops < minLen) return
+
+    aiWorkerRequestIdRef.current += 1
+
+    const next = h.slice(0, h.length - pops).map((m, i) => ({ ...m, index: i + 1 }))
+    const newBoard = boardFromMoves(next, next.length)
+
+    clearImportFlashTimers()
+    setResultFlash(null)
+    setImportOpponentIntro(false)
+    pendingYourTurnFlashAfterAiRef.current = false
+
+    setUndosRemaining((u) => u - 1)
+    setBoard(newBoard)
+    setMoveHistory(next)
+    setHintTarget(null)
+    setBoardKick((k) => (k === 0 ? 1 : 0))
+
+    if (next.length === 0) {
+      setWinner(0)
+      setWinLine([])
+      setCurrentPlayer(1)
+      setFocus(null)
+      return
+    }
+
+    const last = next[next.length - 1]
+    const w = checkWin(newBoard, last.x, last.y, last.player)
+    if (w) {
+      setWinner(last.player)
+      setWinLine(w.line)
+    } else {
+      setWinner(0)
+      setWinLine([])
+    }
+    const np: Player = next.length % 2 === 0 ? 1 : 2
+    setCurrentPlayer(np)
+    setFocus({ x: last.x, y: last.y })
   }
 
   const handleCellClick = (x: number, y: number) => {
@@ -2369,7 +2414,7 @@ function App() {
     let cancelled = false
     const run = () => {
       if (cancelled) return
-      const pt = pickBestHumanHintMove(board)
+      const pt = pickBestHumanHintMove(board, difficulty)
       setHintTarget(pt)
     }
     let idleId: number | ReturnType<typeof setTimeout>
@@ -2565,6 +2610,7 @@ function App() {
       const last = st.moves[st.moves.length - 1]
       if (last) setFocus({ x: last.x, y: last.y })
       setPatternImportSession({ patternId: pid, phase: 'ready' })
+      setUndosRemaining(3)
       /* 大字与 intro 定时器须排到本 effect cleanup 之后：否则 phase 从 simulating→ready 时 cleanup 会
        * 曾共用 importSimFlashTimersRef 时 cleanup 会清掉「对方在下」定时器 → AI 永不落子；大字现用 importPatternFlashTimersRef */
       window.setTimeout(() => {
@@ -2871,6 +2917,7 @@ function App() {
                   className={`difficulty-opt ${difficulty === 'easy' ? 'difficulty-opt--active' : ''}`}
                   onClick={() => applyDifficultyChange('easy')}
                   aria-pressed={difficulty === 'easy'}
+                  title="候选点按局面分 softmax 温度抽样（弱于总选最强）"
                 >
                   简单
                 </button>
@@ -2879,6 +2926,7 @@ function App() {
                   className={`difficulty-opt ${difficulty === 'normal' ? 'difficulty-opt--active' : ''}`}
                   onClick={() => applyDifficultyChange('normal')}
                   aria-pressed={difficulty === 'normal'}
+                  title="α-β 剪枝，搜索深度高于简单档"
                 >
                   普通
                 </button>
@@ -2887,6 +2935,7 @@ function App() {
                   className={`difficulty-opt ${difficulty === 'hard' ? 'difficulty-opt--active' : ''}`}
                   onClick={() => applyDifficultyChange('hard')}
                   aria-pressed={difficulty === 'hard'}
+                  title="α-β 搜索 + 根节点蒙特卡洛 rollout 加权（无神经网络）"
                 >
                   困难
                 </button>
@@ -3215,8 +3264,10 @@ function App() {
                 </div>
                 <p className="play-side-desc">
                   {difficulty === 'easy'
-                    ? '简单模式下关键好棋会被记分并命名招式'
-                    : '当前难度下仅记录招式与分数，不提供提示光'}
+                    ? '简单：AI 在必胜/必防后，按局面分数对候选点做 softmax 温度抽样（弱于总选最强点）；提示光仅按静态估值推荐。'
+                    : difficulty === 'hard'
+                      ? '困难：α-β 搜索后，在若干强候选上做蒙特卡洛随机模拟（rollout）加权选点，与 MCTS/强化学习文献中的模拟层思想一致；无神经网络。详见「关于本作」。'
+                      : '普通：α-β 剪枝、比简单更深的搜索；仅记录招式与分数，无提示光。'}
                 </p>
               </header>
               <div className="panel-section play-side-moves">
@@ -3801,12 +3852,44 @@ function App() {
                 <div className="status-secondary">
                   总评分：<span className="score">{totalScore}</span>
                 </div>
-                <button
-                  className={`pill reset-btn ${winner !== 0 ? 'reset-breathe' : ''}`}
-                  onClick={handleReset}
-                >
-                  重新开局
-                </button>
+                <div className="status-strip-actions">
+                  {(() => {
+                    const importMin =
+                      patternImportSession?.phase === 'ready' && importSnapshotRef.current
+                        ? importSnapshotRef.current.moves.length
+                        : 0
+                    const pops = winner === 0 && currentPlayer === 1 ? 2 : 1
+                    const canUndo =
+                      viewMode === 'play' &&
+                      patternImportSession?.phase !== 'simulating' &&
+                      undosRemaining > 0 &&
+                      moveHistory.length > importMin &&
+                      moveHistory.length - pops >= importMin
+                    return (
+                      <button
+                        type="button"
+                        className="pill undo-btn"
+                        disabled={!canUndo}
+                        onClick={handleUndo}
+                        title={
+                          canUndo
+                            ? winner === 0 && currentPlayer === 1
+                              ? '撤销上一手双方落子（黑+白）'
+                              : '撤销上一手落子'
+                            : '无法悔棋'
+                        }
+                      >
+                        悔棋（{undosRemaining}）
+                      </button>
+                    )
+                  })()}
+                  <button
+                    className={`pill reset-btn ${winner !== 0 ? 'reset-breathe' : ''}`}
+                    onClick={handleReset}
+                  >
+                    重新开局
+                  </button>
+                </div>
               </div>
               {patternImportSession?.phase === 'ready' && (
                 <div className="pattern-import-dock" role="group" aria-label="棋形导入选项">
@@ -3947,6 +4030,28 @@ function App() {
               <h3 className="about-modal-subtitle">创作想法</h3>
               <p className="about-modal-text">
                 希望用浏览器实现一套偏「Liquid Glass」质感的五子棋界面：深色背景上的磨砂玻璃、柔光与清晰的操作区，让人机对弈、历史回放与招式导读集中在同一块画布中。在规则简明的前提下，将棋形识别、多档难度与棋谱复习做成顺手的单页体验，并作为练习现代 CSS 与 React 状态管理的一次实践。
+              </p>
+              <h3 className="about-modal-subtitle">AI 与参考实现</h3>
+              <p className="about-modal-text">
+                <strong>简单</strong>：在必胜/必防之后，对候选点按局面启发分做 <strong>softmax 温度抽样</strong>
+                （常见弱棋力随机策略，优于均匀瞎选）。<strong>普通</strong>：<strong>α-β</strong>，搜索深度高于简单档。
+                <strong>困难</strong>：更深 α-β 后在多强候选上做<strong>蒙特卡洛 rollout</strong>
+                加权（近 MCTS 模拟层，<strong>无</strong>神经网络）。源码见 <code>src/ai/engine.ts</code>
+                ，白方在 Web Worker 中思考。
+              </p>
+              <p className="about-modal-text">
+                若关注<strong>基于深度强化学习的五子棋 AI 框架</strong>（MCTS、PPO、策略–价值网络等），可参考社区开源项目{' '}
+                <a href="https://github.com/guokezhen999/gomoku_rl" target="_blank" rel="noopener noreferrer">
+                  guokezhen999/gomoku_rl
+                </a>
+                （Python / PyTorch，自述为深度强化学习方向；与本作前端搜索实现相互独立，供算法与工程延伸）。
+              </p>
+              <p className="about-modal-text">
+                经典<strong>α-β 剪枝</strong>五子棋 AI 与教程可参考{' '}
+                <a href="https://github.com/lihongxun945/gobang" target="_blank" rel="noopener noreferrer">
+                  lihongxun945/gobang
+                </a>
+                （JavaScript；作者说明为传统搜索、<strong>非</strong>神经网络，适合对照阅读）。
               </p>
               <dl className="about-meta">
                 <div className="about-meta-row">

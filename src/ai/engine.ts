@@ -1,6 +1,11 @@
 /**
  * 人机 AI 与局面估值（供主线程与 Web Worker 共用）。
  * 叶节点估值已做单遍扫描优化，避免 staticEval 重复 generateMoveCandidates。
+ *
+ * 难度设计参考常见博弈 AI 文献与开源实践（如极小化极大 + α-β、静态估值指数权重、弱棋力下的随机策略）：
+ * - 简单：必胜/必防后，对候选点按局面启发分做 **softmax 温度采样**（随机策略，类似带温度的策略分布，非均匀瞎走）。
+ * - 普通：**α-β**，根下搜索深度介于入门与困难之间（见 pickBestMoveMinimax 层数）。
+ * - 困难：α-β + 根节点蒙特卡洛 rollout（与 MCTS 模拟层思想接近，无神经网络）。
  */
 
 export type Cell = 0 | 1 | 2
@@ -269,9 +274,82 @@ function pickBestMoveMinimax(board: Cell[], plyDepth: number): ScoredMove | null
   return best
 }
 
+/** 从「下一手方」开始随机走子至终局或步数上限；返回胜者 1/2，和棋或超长为 0 */
+function playoutRandomOutcome(startBoard: Cell[], nextToMove: Player): 0 | 1 | 2 {
+  const b = startBoard.slice()
+  let p: Player = nextToMove
+  const maxPlies = 240
+  for (let step = 0; step < maxPlies; step++) {
+    const cand = generateMoveCandidates(b, p, 3, 20)
+    if (!cand.length) return 0
+    const pick = cand[Math.floor(Math.random() * cand.length)]!
+    const idx = indexOf(pick.x, pick.y)
+    b[idx] = p
+    if (checkWin(b, pick.x, pick.y, p)) return p
+    p = p === 1 ? 2 : 1
+  }
+  return 0
+}
+
+/**
+ * 困难档：先 α-β 得到若干强候选，再在根上做多局随机 rollout，按白方胜率加权选点（无网络，属 MCTS/自对弈中的 rollout 层）。
+ */
+function pickBestMoveHardHybrid(board: Cell[]): ScoredMove | null {
+  const ai = 2 as Player
+  const moves = generateMoveCandidates(board, ai, 3, 12)
+  if (!moves.length) return null
+
+  const scored: { m: ScoredMove; sc: number }[] = []
+  for (const m of moves) {
+    const nb = board.slice()
+    nb[indexOf(m.x, m.y)] = ai
+    if (checkWin(nb, m.x, m.y, ai)) return { ...m, score: 1e12, pattern: '立即成五' }
+    const sc = minimaxAB(nb, 3, false, MM_LOSS, MM_WIN)
+    scored.push({ m, sc })
+  }
+  scored.sort((a, b) => b.sc - a.sc)
+
+  const bestSc = scored[0]!.sc
+  /** 与最优解接近的候选才做多局模拟，避免全盘 rollout 爆时间 */
+  const band = 220_000
+  const contenders = scored.filter((s) => s.sc >= bestSc - band).slice(0, 4)
+  if (contenders.length <= 1) {
+    return contenders[0]!.m
+  }
+
+  const rollouts = 18
+  let pick = contenders[0]!.m
+  let bestRate = -1
+  for (const { m } of contenders) {
+    const nb = board.slice()
+    nb[indexOf(m.x, m.y)] = ai
+    let wins = 0
+    for (let r = 0; r < rollouts; r++) {
+      const o = playoutRandomOutcome(nb, 1)
+      if (o === 2) wins++
+    }
+    const rate = wins / rollouts
+    if (rate > bestRate) {
+      bestRate = rate
+      pick = m
+    } else if (rate === bestRate) {
+      const scA = scored.find((x) => x.m.x === pick.x && x.m.y === pick.y)?.sc ?? MM_LOSS
+      const scB = scored.find((x) => x.m.x === m.x && x.m.y === m.y)?.sc ?? MM_LOSS
+      if (scB > scA) pick = m
+    }
+  }
+  return { ...pick, pattern: pick.pattern ? `${pick.pattern} · MC` : 'MC 加权' }
+}
+
 const HUMAN_HINT_DEPTH = 3
 
-export function pickBestHumanHintMove(board: Cell[]): { x: number; y: number } | null {
+/**
+ * 简单模式提示：仅按静态估值最优候选（与弱 AI 常用「只看局面分」一致）；其它难度用浅层 minimax 估应手。
+ */
+export function pickBestHumanHintMove(
+  board: Cell[],
+  mode: Difficulty = 'normal',
+): { x: number; y: number } | null {
   const human = 1 as Player
   let stoneCount = 0
   for (let i = 0; i < board.length; i++) if (board[i] !== 0) stoneCount++
@@ -290,6 +368,10 @@ export function pickBestHumanHintMove(board: Cell[]): { x: number; y: number } |
     const nb = board.slice()
     nb[indexOf(m.x, m.y)] = human
     if (checkWin(nb, m.x, m.y, human)) return { x: m.x, y: m.y }
+  }
+
+  if (mode === 'easy') {
+    return { x: moves[0]!.x, y: moves[0]!.y }
   }
 
   let bestM: ScoredMove = moves[0]!
@@ -311,15 +393,24 @@ export function pickBestHumanHintMove(board: Cell[]): { x: number; y: number } |
   return { x: bestM.x, y: bestM.y }
 }
 
-function pickEasyNonForced(candidates: ScoredMove[]): ScoredMove {
-  const top = candidates.slice(0, 8)
+/**
+ * 简单档非强制阶段：对静态估值最高的若干候选做 softmax 抽样（温度 T）。
+ * 与博弈/RL 中带温度策略、按 exp(score/T) 比例随机选子的做法一致，弱于总选 argmax，但强于均匀随机。
+ */
+const EASY_SOFTMAX_TEMPERATURE = 7200
+
+function pickEasySoftmaxSample(candidates: ScoredMove[]): ScoredMove {
+  const top = candidates.slice(0, 14)
   if (top.length <= 1) return top[0]!
-  const r = Math.random()
-  if (r < 0.52) return top[0]!
-  if (r < 0.8) return top[1] ?? top[0]!
-  if (r < 0.92) return top[2] ?? top[0]!
-  const k = 3 + Math.floor(Math.random() * Math.min(5, top.length - 3))
-  return top[k] ?? top[0]!
+  const maxS = top[0]!.score
+  const weights = top.map((m) => Math.exp((m.score - maxS) / EASY_SOFTMAX_TEMPERATURE))
+  const sumW = weights.reduce((a, b) => a + b, 0)
+  let r = Math.random() * sumW
+  for (let i = 0; i < top.length; i++) {
+    r -= weights[i]!
+    if (r <= 0) return top[i]!
+  }
+  return top[0]!
 }
 
 export function chooseAIMove(board: Cell[], difficulty: Difficulty): ScoredMove | null {
@@ -354,14 +445,15 @@ export function chooseAIMove(board: Cell[], difficulty: Difficulty): ScoredMove 
   }
 
   if (difficulty === 'easy') {
-    return pickEasyNonForced(candidates)
+    return pickEasySoftmaxSample(candidates)
   }
 
   if (difficulty === 'normal') {
-    const pick = pickBestMoveMinimax(board, 2)
+    /** 中等：比「仅 1 层应手」更深一层 α-β，接近常见「中等难度」 minimax 深度配置 */
+    const pick = pickBestMoveMinimax(board, 3)
     return pick ?? candidates[0]
   }
 
-  const pick = pickBestMoveMinimax(board, 4)
+  const pick = pickBestMoveHardHybrid(board) ?? pickBestMoveMinimax(board, 4)
   return pick ?? candidates[0]
 }

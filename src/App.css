@@ -617,6 +617,24 @@
   color: rgba(226, 232, 240, 0.92);
 }
 
+.about-modal-body a {
+  color: #93c5fd;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.about-modal-body a:hover {
+  color: #bfdbfe;
+}
+
+.about-modal-body code {
+  font-size: 0.92em;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: rgba(15, 23, 42, 0.65);
+  color: #e2e8f0;
+}
+
 .about-meta {
   margin: 0;
   padding: 14px 0 0;
@@ -839,6 +857,30 @@
 }
 
 /*
+ * 仅包住棋盘+侧栏的壳不设 sticky；下方独立一条「人机底栏 / 历史底栏 / 招式底栏」在 main 内滚动时吸底，
+ * 避免长页面（尤其移动端纵排）把「返回对局」等滚出视口。
+ */
+.main-layout.view-play > .view-mode-footer-shell:not(.view-mode-main-shell),
+.main-layout.view-history > .view-mode-footer-shell:not(.view-mode-main-shell),
+.main-layout.view-catalog > .view-mode-footer-shell:not(.view-mode-main-shell) {
+  position: sticky;
+  bottom: 0;
+  z-index: 6;
+  flex-shrink: 0;
+  margin-top: 0;
+  padding-top: var(--main-to-footer-gap);
+  padding-bottom: max(4px, env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(
+    180deg,
+    rgba(6, 11, 25, 0) 0%,
+    rgba(7, 12, 28, 0.82) 38%,
+    rgba(7, 12, 28, 0.96) 100%
+  );
+  backdrop-filter: blur(14px) saturate(130%);
+  -webkit-backdrop-filter: blur(14px) saturate(130%);
+}
+
+/*
  * 与 main-shell 一致：外壳包住内层滚动，避免与 app-shell 重复出现整页滚动条。
  */
 .view-mode-main-shell.view-mode-footer-shell {
@@ -940,6 +982,18 @@
   visibility: visible;
 }
 
+/*
+ * 横滑三屏同在一条 flex 行里时，行高默认取各列 cross-size 的 max；非当前屏若仍按 min-content 占位，
+ * 会把当前屏撑得极高，.view-mode-track-clip 出现「巨长滚动条拇指极短」，并触发 ResizeObserver 反复改侧栏高。
+ * 非激活屏在纵轴折叠，不参与行高（宽度仍为 33.33% 以维持横滑几何）。
+ */
+.view-mode-main-shell .view-mode-footer-panel:not(.view-mode-footer-panel--active) {
+  align-self: flex-start;
+  height: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
 /* 棋盘 + 侧栏双列：等高拉伸（grid 行高 = 较高一列），顶边与底边同时与行盒对齐 */
 .main-layout .main-top-row {
   display: grid;
@@ -997,6 +1051,12 @@
   /* 列盒本身不铺色：仅内层 .side-panel-surface 为玻璃，缝与留白透出页面渐变 */
   background: transparent;
   box-shadow: none;
+}
+
+/* 人机 / 历史：与左侧棋盘列同为 start；历史侧栏随内容增高，勿被栅格行盒纵向拉长 */
+.main-layout.view-play .main-top-row > .side-panel,
+.main-layout.view-history .main-top-row > .side-panel {
+  align-self: start;
 }
 
 .intro {
@@ -1674,6 +1734,17 @@
   text-align: center;
 }
 
+.main-layout.view-play .status-strip--under-board .status-strip-actions,
+.main-layout.view-history .status-strip--under-board .status-strip-actions,
+.main-layout.view-catalog .status-strip--catalog-under-board .status-strip-actions {
+  grid-column: 3;
+  justify-self: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
 .main-layout.view-play .status-strip--under-board > .pill,
 .main-layout.view-history .status-strip--under-board > .pill,
 .main-layout.view-catalog .status-strip--catalog-under-board > .pill {
@@ -1694,6 +1765,18 @@
 .score {
   font-weight: 700;
   color: #e5e7eb;
+}
+
+.undo-btn {
+  position: relative;
+  z-index: 0;
+  background: linear-gradient(90deg, #64748b, #475569);
+  color: #f8fafc;
+}
+
+.undo-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
 }
 
 .reset-btn {
@@ -1772,6 +1855,22 @@
   background: transparent;
 }
 
+/*
+ * 招式：玻璃层不整体纵向滚动，由 .catalog-body / .catalog-list-scroll 内滚动。
+ * 历史：玻璃高度随内容（避免记录少时 height:100% + flex:1 列表 + margin-top:auto 底栏挤出大块空白）。
+ */
+.main-layout.view-catalog .main-top-row > .side-panel .side-panel-surface {
+  overflow-y: hidden;
+}
+
+.main-layout.view-history .main-top-row > .side-panel .side-panel-surface {
+  flex: 0 1 auto;
+  height: auto;
+  max-height: 100%;
+  overflow-x: hidden;
+  overflow-y: visible;
+}
+
 /* 侧栏高度由 App 行内 style 与棋盘 .board-wrap 同高；勿写 height:auto 以免与行内冲突 */
 .main-layout.view-play .main-top-row > .side-panel,
 .main-layout.view-history .main-top-row > .side-panel {
@@ -1783,6 +1882,11 @@
   position: relative;
   /* 低于棋盘列，减轻大阴影在栅格缝处盖住「间隙背景」的感觉 */
   z-index: 0;
+}
+
+/* 历史：玻璃贴顶，下方留白透出页面，勿把空白做在玻璃内部 */
+.main-layout.view-history .main-top-row > .side-panel {
+  justify-content: flex-start;
 }
 
 .main-layout.view-catalog .main-top-row > .side-panel {
@@ -1834,7 +1938,6 @@
 }
 
 .main-layout.view-play .main-top-row > .side-panel .side-panel-surface.glass,
-.main-layout.view-history .main-top-row > .side-panel .side-panel-surface.glass,
 .main-layout.view-catalog .main-top-row > .side-panel .side-panel-surface.glass {
   box-shadow:
     var(--shadow-glass-soft),
@@ -1842,6 +1945,15 @@
   /* 与 aside 固定像素高一致，避免子级 min-content 撑不满导致底缘视觉上短一截 */
   height: 100%;
   max-height: 100%;
+}
+
+/* 历史：玻璃随内容包在列表+回放+对抗条之下，勿 100% 铺满 aside（长屏否则对抗条下空白随视窗变长） */
+.main-layout.view-history .main-top-row > .side-panel .side-panel-surface.glass {
+  box-shadow:
+    var(--shadow-glass-soft),
+    var(--shadow-glass-ring);
+  height: auto;
+  max-height: none;
 }
 
 .main-layout .main-top-row > .side-panel .side-panel-surface.glass {
@@ -2398,6 +2510,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+  flex-shrink: 0;
 }
 
 .history-header-text {
@@ -2593,10 +2706,19 @@
   max-height: 100%;
 }
 
+/* 历史：随内容增高；列表区限高 + 内部滚动（多局时） */
+.main-layout.view-history .panel-section.history-only {
+  flex: 0 1 auto;
+  height: auto;
+  max-height: 100%;
+  overflow: visible;
+}
+
 .main-layout.view-history .history-list {
-  flex: 1;
-  min-height: 120px;
-  max-height: none;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: min(52dvh, 440px);
+  overflow-y: auto;
 }
 
 .history-list::-webkit-scrollbar {
@@ -2672,9 +2794,9 @@
   opacity: 0.78;
 }
 
-/* 底部：回放控件在上，胜负对抗条贴右侧栏最下沿 */
+/* 底部：回放控件 + 对抗条；与列表固定间距（勿 margin-top:auto，否则侧栏被拉高时中间出现大块空白） */
 .history-bottom-stack {
-  margin-top: auto;
+  margin-top: 12px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -2979,7 +3101,7 @@
 }
 
 .catalog-body {
-  flex: 1 1 auto;
+  flex: 1 1 0%;
   min-height: 0;
   overflow: hidden;
   display: flex;
@@ -2995,13 +3117,16 @@
 }
 
 .catalog-footer {
-  flex-shrink: 0;
+  /* 与卡片区争高时让出空间，避免底部说明把卡片区压到 0；内容靠内部滚动 */
+  flex-shrink: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
   margin-top: 16px;
   padding-top: 14px;
   border-top: 1px solid rgba(148, 163, 184, 0.14);
+  overflow: hidden;
 }
 
 .catalog-footer-summary-top {
@@ -3051,7 +3176,7 @@
 }
 
 .catalog-list-scroll {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
   max-width: 100%;
   overflow-y: auto;
@@ -3064,12 +3189,17 @@
   gap: 10px;
 }
 
-/* 招式大全：双列卡片 */
+/* 招式大全：双列卡片；min-height 保底一行可见；须可 flex 收缩，否则网格被内容撑高、内部不出现滚动条 */
 .main-layout.view-catalog .catalog-list-scroll {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-content: start;
   gap: 12px 12px;
+  flex: 1 1 0%;
+  min-height: clamp(112px, 26vmin, 360px);
+  flex-shrink: 1;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
 .catalog-list-scroll::-webkit-scrollbar {
@@ -3126,7 +3256,7 @@
 }
 
 .catalog-detail-desc-bar {
-  flex-shrink: 0;
+  flex-shrink: 1;
   flex-grow: 0;
   margin-top: 0;
   padding: 11px 12px 12px;
@@ -3135,7 +3265,7 @@
   box-shadow:
     0 0 0 1px rgba(148, 163, 184, 0.14) inset,
     0 12px 40px rgba(0, 0, 0, 0.2);
-  max-height: min(42vh, 240px);
+  max-height: min(34vh, 200px);
   min-height: 72px;
   overflow-x: hidden;
   overflow-y: auto;
@@ -4021,6 +4151,12 @@
     justify-self: auto;
   }
 
+  .main-layout.view-play .status-strip--under-board .status-strip-actions,
+  .main-layout.view-history .status-strip--under-board .status-strip-actions,
+  .main-layout.view-catalog .status-strip--catalog-under-board .status-strip-actions {
+    align-self: flex-start;
+  }
+
   .main-layout.view-play .status-strip--under-board > .pill,
   .main-layout.view-history .status-strip--under-board > .pill,
   .main-layout.view-catalog .status-strip--catalog-under-board > .pill {
@@ -4031,25 +4167,147 @@
     min-height: 0;
   }
 
+  /* 勿限制 catalog-body 高度：会与顶栏/底栏相加把卡片区压没；卡片区用 min-height 保底 */
   .catalog-body {
-    max-height: min(48vh, 420px);
+    flex: 1 1 0%;
+    min-height: 0;
+    max-height: none;
+  }
+
+  .main-layout.view-catalog .catalog-list-scroll {
+    min-height: clamp(120px, 32vmin, 380px);
   }
 
   .catalog-detail-desc-bar {
-    max-height: min(36vh, 200px);
+    max-height: min(30vh, 180px);
   }
 
   .catalog-header {
     flex-direction: column;
     align-items: stretch;
+    gap: 10px 12px;
+  }
+
+  /*
+   * 招式大全顶栏（窄屏）：分类一行、排序一行；总高参考侧栏高度约 30%（父级有明确高时生效），
+   * 并与 min(22dvh, 200px) 取较小值，避免占满半屏。
+   */
+  .main-layout.view-catalog .catalog-panel > .catalog-header {
+    flex-shrink: 0;
+    max-height: min(22dvh, 30%, 200px);
+    padding-bottom: 6px;
+    margin-bottom: 0;
+    gap: 6px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.4) transparent;
+  }
+
+  .main-layout.view-catalog .catalog-panel > .catalog-header::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .main-layout.view-catalog .catalog-panel > .catalog-header::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.4);
+    border-radius: 999px;
+  }
+
+  .main-layout.view-catalog .catalog-header-left {
+    flex: 0 1 auto;
+    min-height: 0;
+    max-height: min(11dvh, 16%);
+  }
+
+  .main-layout.view-catalog .catalog-header-sub {
+    margin-top: 3px;
+    font-size: 11px;
+    line-height: 1.35;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
   }
 
   .catalog-header-filters {
     justify-content: flex-start;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    align-content: flex-start;
+    max-width: 100%;
+    flex: 0 0 auto;
+    min-height: 0;
+    gap: 4px 8px;
   }
 
   .catalog-header-sort {
-    margin-top: 6px;
+    margin-top: 0;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    max-width: 100%;
+    min-height: 0;
+    gap: 4px 8px;
+    padding-top: 4px;
+    border-top: 1px solid rgba(148, 163, 184, 0.12);
+  }
+
+  /* 标签短行 + 胶囊横滑：分类、排序各成一块（两行工具区） */
+  .main-layout.view-catalog .catalog-header-filters .catalog-sort-label,
+  .main-layout.view-catalog .catalog-header-sort .catalog-sort-label {
+    flex: 0 0 auto;
+    width: auto;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    line-height: 1.2;
+    margin-right: 6px;
+  }
+
+  .main-layout.view-catalog .catalog-header-filters,
+  .main-layout.view-catalog .catalog-header-sort {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+
+  .main-layout.view-catalog .catalog-header-filters .catalog-sort-chips,
+  .main-layout.view-catalog .catalog-header-sort .catalog-sort-chips {
+    display: flex;
+    flex-wrap: nowrap;
+    flex: 1 1 auto;
+    width: 0;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.45) transparent;
+    gap: 6px;
+    padding-bottom: 2px;
+    justify-content: flex-start;
+    align-items: center;
+  }
+
+  .main-layout.view-catalog .catalog-header-filters .catalog-filter-chip,
+  .main-layout.view-catalog .catalog-header-sort .catalog-filter-chip {
+    flex-shrink: 0;
+    white-space: nowrap;
+    min-height: 30px;
+    padding: 4px 9px;
+    font-size: 11px;
+  }
+
+  .main-layout.view-catalog .catalog-header-filters .catalog-sort-chips::-webkit-scrollbar,
+  .main-layout.view-catalog .catalog-header-sort .catalog-sort-chips::-webkit-scrollbar {
+    height: 4px;
+  }
+
+  .main-layout.view-catalog .catalog-header-filters .catalog-sort-chips::-webkit-scrollbar-thumb,
+  .main-layout.view-catalog .catalog-header-sort .catalog-sort-chips::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.45);
+    border-radius: 999px;
   }
 
   .catalog-sort-chips {
@@ -4086,8 +4344,19 @@
     font-size: 16px;
   }
 
-  .catalog-body {
-    max-height: 40vh;
+  .catalog-header {
+    padding-bottom: 8px;
+    margin-bottom: 0;
+    gap: 8px 10px;
+  }
+
+  .main-layout.view-catalog .catalog-list-scroll {
+    min-height: clamp(104px, 28vmin, 260px);
+  }
+
+  .catalog-detail-desc-bar {
+    max-height: min(24vh, 140px);
+    padding: 8px 10px 10px;
   }
 }
 

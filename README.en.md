@@ -2,20 +2,22 @@
 
 **[简体中文](README.md)** · Browser **Gomoku** (five-in-a-row) with **React 19**, **TypeScript**, and **Vite** — dark liquid-glass UI, human vs AI, local history & replay, and a pattern encyclopedia with board demos.
 
+**Changelog:** see [CHANGELOG.md](CHANGELOG.md) (append an entry when you push to `main`).
+
 ---
 
 ## Features
 
 | Area | Description |
 |------|-------------|
-| **Play** | 15×15; you are black, AI is white; **easy / normal / hard** (heuristics + minimax, stronger at higher tiers). |
+| **Play** | 15×15; you are black, AI is white; **easy** (after tactics, **softmax temperature** over heuristic scores); **normal** (**alpha-beta**, deeper than easy); **hard** (deeper α-β + root **Monte Carlo rollouts**; **no** neural net). |
 | **Scoring & names** | In **easy** mode, shapes are scored and named; moves show in the side move list. |
 | **Hints (easy)** | Suggested intersection can be highlighted on your turn (other modes: no hint). |
 | **Win & line** | Five in a row wins, line highlighted; “New game” can pulse after the game. |
 | **History** | Games stored in **`localStorage`**; select, step or auto-replay. |
 | **Encyclopedia** | Pattern templates with animated demos and text on the right. |
 | **Pattern import** | Bring a demo position into human vs AI when rules allow; optional random simulation until a translatable match appears; after import, prompts like “Opponent to move” / “Your turn” may show when the next player is white. |
-| **UI** | Board and grid **scale with the layout**; **responsive gap** between board and side panel; **vertical scroll** on the main block or side panel when content does not fit (`overflow-y: auto`). |
+| **UI** | Board and grid **scale with the layout**; **responsive gap** between board and side panel; **vertical scroll** on the main block or side panel when content does not fit (`overflow-y: auto`). **Play** view: side column height tracks the board frame (`.board-wrap`). **History** view: the glass panel **wraps its content** and ends under replay + the duel score bar—no tall empty glass on long screens. |
 
 ---
 
@@ -25,6 +27,14 @@
 - **ESLint** (`typescript-eslint`, React Hooks)
 
 All game and AI logic runs **in the browser** (pattern matching, static eval, minimax + alpha-beta). **No backend.** For **normal / hard**, AI search runs in a **Web Worker** (`src/ai/ai.worker.ts`) so the main thread stays responsive; **easy** stays on the main thread (lightweight). Leaf evaluation is shared in `src/ai/engine.ts` with a single-pass heuristic to reduce work.
+
+### AI notes & further reading (hard mode vs deep RL)
+
+- **Easy tier**: After immediate win/block, **softmax sampling** over candidate heuristic scores (`pickEasySoftmaxSample`)—a standard way to weaken play without uniform random moves.
+- **Normal tier**: **Alpha-beta** with `pickBestMoveMinimax(board, 3)`—deeper than easy, typical “medium” minimax.
+- **Hard tier**: After **alpha-beta** among top moves, **Monte Carlo rollouts** estimate win rates (`pickBestMoveHardHybrid`)—similar in spirit to MCTS rollouts, **without** a neural net.
+- **Deep RL / MCTS reference (external repo)**: **[gomoku_rl](https://github.com/guokezhen999/gomoku_rl)** (Python / PyTorch) experiments with **MCTS, PPO, policy–value nets**, etc.—useful as a **research and engineering reference** for a “deep RL gomoku AI” stack; wiring a model into the browser would be a separate project (e.g. ONNX / server inference).
+- **Classic alpha-beta gomoku (no neural net)**: **[gobang](https://github.com/lihongxun945/gobang)** (JavaScript) is **alpha-beta pruning** with tutorials; the author states **no neural networks**—good contrast with search-only engines like this app.
 
 ---
 
@@ -125,6 +135,7 @@ gomoku-liquid-glass/
 ├── index.html
 ├── vite.config.ts
 ├── .github/workflows/
+├── CHANGELOG.md            # Release notes (update when you push)
 ├── README.md               # Chinese
 ├── README.en.md            # This file
 └── package.json
