@@ -338,6 +338,12 @@ const HARD_MINIMAX_MY_BOOST = 1.12
 /** 困难 hybrid：根下多搜一层，利于「先手连续」的规划感 */
 const HARD_HYBRID_MINIMAX_DEPTH = 4
 
+/**
+ * 盘面子数 ≤ 此值时视为开局：困难档不用 hybrid（多候选 × 深搜 × 全盘叶值 + MC），
+ * 改用浅层 minimax + 邻域静态叶值（与棋形评估同一套启发），空盘首应快、无需玩家去招式侧栏预选局面。
+ */
+const HARD_OPENING_FAST_MAX_STONES = 4
+
 /** 叶节点：单遍邻域空点，同时算双方最强点，避免两次 generateMoveCandidates + 排序 */
 function staticEvalForAI(
   b: Cell[],
@@ -575,16 +581,37 @@ function pickBestMoveHardHybrid(
   return { ...pick, pattern: pick.pattern ? `${pick.pattern} · MC` : 'MC 加权' }
 }
 
-const HUMAN_HINT_DEPTH = 3
+/** 提示灯用 minimax 深度（略深于旧版，利于「跟灯可走成胜势」） */
+const HUMAN_HINT_DEPTH = 4
 
 /**
- * 简单模式提示：仅按静态估值最优候选（与弱 AI 常用「只看局面分」一致）；其它难度用浅层 minimax 估应手。
+ * 对方若已有「下一手成五」的落点，玩家必须占该点，否则提示灯与必胜逻辑不一致。
+ */
+function findMandatoryBlockOpponentWin(
+  board: Cell[],
+  opp: Player,
+): { x: number; y: number } | null {
+  for (let y = 0; y < BOARD_SIZE; y++) {
+    for (let x = 0; x < BOARD_SIZE; x++) {
+      const idx = indexOf(x, y)
+      if (board[idx] !== 0) continue
+      const nb = board.slice()
+      nb[idx] = opp
+      if (checkWin(nb, x, y, opp)) return { x, y }
+    }
+  }
+  return null
+}
+
+/**
+ * 简单档提示灯：先必胜、再必防对方冲四/成五，再浅层 minimax + 静态分 tie-break（与旧版「简单只给静态第一名」不同，避免跟灯仍送死）。
  */
 export function pickBestHumanHintMove(
   board: Cell[],
-  mode: Difficulty = 'normal',
+  _mode: Difficulty = 'normal',
 ): { x: number; y: number } | null {
   const human = 1 as Player
+  const opp = 2 as Player
   let stoneCount = 0
   for (let i = 0; i < board.length; i++) if (board[i] !== 0) stoneCount++
   if (stoneCount === 0) {
@@ -604,9 +631,8 @@ export function pickBestHumanHintMove(
     if (checkWin(nb, m.x, m.y, human)) return { x: m.x, y: m.y }
   }
 
-  if (mode === 'easy') {
-    return { x: moves[0]!.x, y: moves[0]!.y }
-  }
+  const mustBlock = findMandatoryBlockOpponentWin(board, opp)
+  if (mustBlock) return mustBlock
 
   let bestM: ScoredMove = moves[0]!
   let bestEv = MM_WIN
@@ -645,6 +671,12 @@ function pickEasySoftmaxSample(candidates: ScoredMove[]): ScoredMove {
     if (r <= 0) return top[i]!
   }
   return top[0]!
+}
+
+function countStones(board: Cell[]): number {
+  let n = 0
+  for (let i = 0; i < board.length; i++) if (board[i] !== 0) n++
+  return n
 }
 
 export function chooseAIMove(board: Cell[], difficulty: Difficulty): ScoredMove | null {
@@ -701,6 +733,19 @@ export function chooseAIMove(board: Cell[], difficulty: Difficulty): ScoredMove 
   if (difficulty === 'normal') {
     /** 中等：比「仅 1 层应手」更深一层 α-β，接近常见「中等难度」 minimax 深度配置 */
     const pick = pickBestMoveMinimax(board, 3)
+    return pick ?? candidates[0]
+  }
+
+  const stones = countStones(board)
+  if (stones <= HARD_OPENING_FAST_MAX_STONES) {
+    const pick = pickBestMoveMinimax(
+      board,
+      4,
+      HARD_MINIMAX_OPP_WEIGHT,
+      HARD_MINIMAX_MY_BOOST,
+      false,
+      HARD_CANDIDATE_RADIUS,
+    )
     return pick ?? candidates[0]
   }
 

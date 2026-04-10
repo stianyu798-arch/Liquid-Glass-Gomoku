@@ -675,6 +675,71 @@
   color: #e2e8f0;
 }
 
+/* 棋形导入：顶栏切换难度确认（窄卡，与关于本作同玻璃体系） */
+.about-modal-card.about-modal-card--confirm.difficulty-confirm-card {
+  width: min(440px, 92vw) !important;
+  max-width: 440px !important;
+  max-height: none;
+  overflow: visible;
+  padding: 22px 22px 20px;
+}
+
+.difficulty-confirm-lead {
+  margin-bottom: 12px !important;
+}
+
+.difficulty-confirm-switch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px 14px;
+  margin: 0 0 20px !important;
+  padding: 12px 14px;
+  border-radius: 14px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  background: rgba(2, 6, 23, 0.45);
+  box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.18) inset;
+  color: rgba(226, 232, 240, 0.95);
+}
+
+.difficulty-confirm-from {
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.difficulty-confirm-arrow {
+  opacity: 0.55;
+  font-weight: 400;
+}
+
+.difficulty-confirm-to {
+  background: linear-gradient(90deg, #93c5fd, #c4b5fd);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.difficulty-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.difficulty-confirm-btn-cancel {
+  background: rgba(51, 65, 85, 0.75) !important;
+  color: #e2e8f0 !important;
+}
+
+.difficulty-confirm-btn-ok {
+  box-shadow:
+    0 14px 36px rgba(59, 130, 246, 0.38),
+    0 0 0 1px rgba(239, 246, 255, 0.35) !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .about-info-btn--pulse {
     animation: none;
@@ -1380,27 +1445,9 @@
   outline: none;
 }
 
-/* 历史查看：切换卡片或步进时棋子交叉淡化，避免整盘瞬切 */
+/* 历史查看：不在整盘上动 filter，避免子元素棋子 opacity/transform 与父级 filter 叠在一起异常 */
 .board-zone--history-crossfade .board-container {
-  animation: historyBoardCrossfade 0.46s cubic-bezier(0.33, 0.72, 0.36, 1) forwards;
-}
-
-@keyframes historyBoardCrossfade {
-  0% {
-    opacity: 0.86;
-    filter: saturate(0.9) brightness(0.95);
-    transform: scale(0.991);
-  }
-  48% {
-    opacity: 1;
-    filter: saturate(1.06) brightness(1.03);
-    transform: scale(1.005);
-  }
-  100% {
-    opacity: 1;
-    filter: saturate(1) brightness(1);
-    transform: scale(1);
-  }
+  animation: none;
 }
 
 .pt--history-cross {
@@ -1418,16 +1465,6 @@
 .history-stone-stack .stone {
   position: absolute;
   inset: calc(var(--cellPx) * 0.14);
-}
-
-.history-stone-out {
-  animation: historyStoneOut 0.46s cubic-bezier(0.28, 0.52, 0.38, 1) forwards;
-  z-index: 1;
-}
-
-.history-stone-in {
-  animation: historyStoneIn 0.46s cubic-bezier(0.28, 0.52, 0.38, 1) forwards;
-  z-index: 2;
 }
 
 @keyframes historyStoneOut {
@@ -1511,6 +1548,17 @@
   animation: none;
 }
 
+/* 写在 .stone 之后且双类提高特异性，否则 .stone { animation: none } 会盖掉退场/进场 */
+.stone.history-stone-out {
+  animation: historyStoneOut 0.46s cubic-bezier(0.28, 0.52, 0.38, 1) forwards;
+  z-index: 1;
+}
+
+.stone.history-stone-in {
+  animation: historyStoneIn 0.46s cubic-bezier(0.28, 0.52, 0.38, 1) forwards;
+  z-index: 2;
+}
+
 /* 仅当前最后一子：加快落子动效；已落定子保持静态，余晖由 .stone-afterglow 独立播放 */
 .stone.stone-last:not(.stone-catalog) {
   animation: dropInLast 0.28s cubic-bezier(0.2, 0.78, 0.22, 1) forwards;
@@ -1570,6 +1618,48 @@
 
 .stone-white {
   background: radial-gradient(circle at 30% 25%, #f9fafb, #d1d5db 65%);
+}
+
+/* 悔棋提子：覆盖 .stone-last 落子动画，避免与退场抢 transform */
+.stone.stone-undo-vanish {
+  animation: stoneUndoVanish 0.4s cubic-bezier(0.25, 0.82, 0.32, 1) forwards !important;
+  pointer-events: none;
+}
+
+.stone.stone-undo-vanish::after {
+  animation: none !important;
+  opacity: 0 !important;
+}
+
+@keyframes stoneUndoVanish {
+  0% {
+    opacity: 1;
+    transform: scale(0.9);
+    filter: saturate(1) brightness(1);
+  }
+  55% {
+    filter: saturate(0.65) brightness(1.12);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.52) translateY(calc(var(--cellPx) * 0.35));
+    filter: blur(2px) brightness(1.25);
+  }
+}
+
+@keyframes stoneUndoVanishReduced {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stone.stone-undo-vanish {
+    animation: stoneUndoVanishReduced 0.2s ease forwards !important;
+  }
 }
 
 .stone-last::after {
@@ -1776,6 +1866,55 @@
   font-weight: 600;
 }
 
+/* 人机对弈轮到 AI 时：底栏与主文案高亮，Worker 算棋时再加一层脉冲 */
+.main-layout.view-play .status-strip--under-board.status-strip--ai-thinking {
+  background:
+    linear-gradient(90deg, rgba(15, 23, 42, 0.95), rgba(30, 27, 75, 0.98)),
+    radial-gradient(circle at 12% 50%, rgba(99, 102, 241, 0.45), transparent 58%),
+    radial-gradient(circle at 88% 50%, rgba(59, 130, 246, 0.28), transparent 55%);
+  box-shadow:
+    var(--shadow-footer-soft),
+    var(--shadow-footer-inset),
+    0 0 0 1px rgba(129, 140, 248, 0.55),
+    0 0 28px rgba(99, 102, 241, 0.35);
+}
+
+.main-layout.view-play .status-strip--under-board.status-strip--ai-thinking.status-strip--ai-worker-busy {
+  animation: statusStripAiThinkingPulse 1.35s ease-in-out infinite;
+}
+
+.main-layout.view-play .status-strip--under-board .status-main.status-main--ai-thinking {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #e0e7ff;
+  text-shadow: 0 0 20px rgba(165, 180, 252, 0.55);
+}
+
+@keyframes statusStripAiThinkingPulse {
+  0%,
+  100% {
+    box-shadow:
+      var(--shadow-footer-soft),
+      var(--shadow-footer-inset),
+      0 0 0 1px rgba(129, 140, 248, 0.55),
+      0 0 28px rgba(99, 102, 241, 0.35);
+  }
+  50% {
+    box-shadow:
+      var(--shadow-footer-soft),
+      var(--shadow-footer-inset),
+      0 0 0 1px rgba(165, 180, 252, 0.75),
+      0 0 40px rgba(129, 140, 248, 0.55);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .main-layout.view-play .status-strip--under-board.status-strip--ai-thinking.status-strip--ai-worker-busy {
+    animation: none;
+  }
+}
+
 .status-secondary {
   font-size: 12px;
   opacity: 0.85;
@@ -1816,6 +1955,51 @@
   box-sizing: border-box;
   margin-top: 10px;
   padding: 0 8px 6px;
+  transform-origin: 50% 100%;
+  animation: patternImportDockEnter 0.4s cubic-bezier(0.2, 0.85, 0.28, 1) both;
+}
+
+@keyframes patternImportDockEnter {
+  0% {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+    filter: blur(2px);
+  }
+  65% {
+    filter: blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes patternImportDockExit {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+    filter: blur(3px);
+  }
+}
+
+.main-layout.view-play .pattern-import-dock.pattern-import-dock--exit {
+  pointer-events: none;
+  animation: patternImportDockExit 0.44s cubic-bezier(0.25, 0.82, 0.32, 1) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .main-layout.view-play .pattern-import-dock,
+  .main-layout.view-play .pattern-import-dock.pattern-import-dock--exit {
+    animation: none !important;
+    filter: none !important;
+    transform: none !important;
+  }
 }
 
 .main-layout.view-play .pattern-import-dock__btn {
@@ -2282,12 +2466,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .board-zone--history-crossfade .board-container {
-    animation: none;
-  }
-
-  .history-stone-out,
-  .history-stone-in {
+  .stone.history-stone-out,
+  .stone.history-stone-in {
     animation-duration: 0.14s;
   }
 
@@ -3497,6 +3677,112 @@
   }
 }
 
+.catalog-continue-pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  flex-shrink: 0;
+  transform-origin: top left;
+  animation: catalogContinuePickEnter 0.42s cubic-bezier(0.2, 0.85, 0.28, 1) both;
+}
+
+@keyframes catalogContinuePickEnter {
+  0% {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+    filter: blur(3px);
+  }
+  60% {
+    filter: blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+.catalog-continue-pick-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(203, 213, 245, 0.95);
+  letter-spacing: 0.02em;
+}
+
+.catalog-continue-diff-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/**
+ * 侧栏续弈难度：勿复用顶栏 .difficulty-opt（透明底 + 激活字色为配合玻璃滑块）；
+ * 此处独立为实体按钮，保证与预设高亮对比度。
+ */
+.catalog-continue-diff-opt {
+  appearance: none;
+  margin: 0;
+  cursor: pointer;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  line-height: 1.25;
+  padding: 7px 12px;
+  color: rgba(248, 250, 252, 0.96);
+  background: rgba(30, 41, 59, 0.94);
+  box-shadow:
+    0 4px 18px rgba(0, 0, 0, 0.35),
+    0 0 0 1px rgba(15, 23, 42, 0.4) inset;
+  transition:
+    background 0.16s ease,
+    color 0.16s ease,
+    box-shadow 0.16s ease,
+    border-color 0.16s ease,
+    transform 0.12s ease;
+}
+
+.catalog-continue-diff-opt:hover {
+  background: rgba(51, 65, 85, 0.98);
+  color: #fff;
+  border-color: rgba(191, 219, 254, 0.35);
+}
+
+.catalog-continue-diff-opt:active {
+  transform: scale(0.98);
+}
+
+/** 与顶栏当前难度一致时的视觉提示（非禁用，三档均可点） */
+.catalog-continue-diff-opt--preset {
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+  color: #020617;
+  font-weight: 700;
+  border-color: rgba(239, 246, 255, 0.45);
+  box-shadow:
+    0 12px 36px rgba(59, 130, 246, 0.45),
+    0 0 0 1px rgba(239, 246, 255, 0.42);
+}
+
+.catalog-continue-diff-opt--preset:hover {
+  color: #020617;
+  filter: brightness(1.04);
+}
+
+.catalog-continue-cancel {
+  font-size: 11px;
+  padding: 6px 12px;
+  color: rgba(226, 232, 240, 0.92);
+  background: rgba(51, 65, 85, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.catalog-continue-cancel:hover {
+  background: rgba(71, 85, 105, 0.65);
+}
+
 .catalog-continue-btn {
   flex-shrink: 0;
   font-size: 12px;
@@ -3554,6 +3840,13 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .catalog-continue-pick {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+
   .catalog-continue-bar,
   .catalog-continue-bar--boost,
   .catalog-footer-summary--continue-boost,

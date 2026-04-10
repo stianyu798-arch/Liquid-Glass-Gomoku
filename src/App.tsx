@@ -24,6 +24,10 @@ const DIFFICULTY_SCORE_MULTIPLIER: Record<Difficulty, number> = {
   hard: 1.35,
 }
 
+function difficultyLabel(d: Difficulty): string {
+  return d === 'easy' ? '简单' : d === 'normal' ? '普通' : '困难'
+}
+
 function formatDifficultyScoreMultiplier(d: Difficulty): string {
   return `×${DIFFICULTY_SCORE_MULTIPLIER[d]}`
 }
@@ -1193,25 +1197,6 @@ function nextPlayerFromMoves(moves: MoveRecord[]): Player {
   return moves[moves.length - 1]!.player === 1 ? 2 : 1
 }
 
-/** 棋谱不变，仅按新难度倍率重算各手 scoreDelta（用于导入后续弈中切换难度） */
-function rescoreMoveHistoryForDifficulty(moves: MoveRecord[], difficulty: Difficulty): MoveRecord[] {
-  const mult = DIFFICULTY_SCORE_MULTIPLIER[difficulty]
-  let b = createEmptyBoard()
-  return moves.map((m, i) => {
-    const evalMove = evaluateBoardAt(b, m.x, m.y, m.player)
-    const uiScoreDelta = Math.round((evalMove.score / 100) * mult)
-    const nb = b.slice()
-    nb[indexOf(m.x, m.y)] = m.player
-    b = nb
-    return {
-      ...m,
-      index: i + 1,
-      scoreDelta: uiScoreDelta,
-      pattern: evalMove.pattern || m.pattern,
-    }
-  })
-}
-
 /** 演示落满后的盘面是否已存在五连（任一方），此类棋形不再提供「以此局面续弈」 */
 function catalogDemoBoardAlreadyWon(slots: CatalogSlot[]): boolean {
   if (slots.length === 0) return false
@@ -1475,6 +1460,11 @@ function App() {
   const [moveHistory, setMoveHistory] = useState<MoveRecord[]>([])
   /** 每局人机对弈可用悔棋次数（重新开局时恢复为 3） */
   const [undosRemaining, setUndosRemaining] = useState(3)
+  /** 悔棋：被提子先播退场再改局面 */
+  const [undoStoneExit, setUndoStoneExit] = useState<
+    null | { key: number; cells: { x: number; y: number; player: Player }[] }
+  >(null)
+  const undoAnimTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** 上一手失去「最后」标记后仍独立播完余晖光效，避免被下一手打断 */
   const [stoneAfterglowKeys, setStoneAfterglowKeys] = useState(() => new Set<string>())
   const playLastPosRef = useRef<{ x: number; y: number } | null>(null)
@@ -1508,6 +1498,8 @@ function App() {
     patternId: PatternId
     phase: 'simulating' | 'ready'
   } | null>(null)
+  /** 「取消棋形导入」：先播 dock 退场再 reset，避免硬切 */
+  const [patternImportDockExiting, setPatternImportDockExiting] = useState(false)
   const patternImportSessionRef = useRef<typeof patternImportSession>(null)
   const importSnapshotRef = useRef<{
     board: Cell[]
@@ -1583,9 +1575,13 @@ function App() {
   }, [])
 
   const [aboutVisible, setAboutVisible] = useState(false)
+  /** 棋形导入后顶栏改难度：待确认的目标档位（自绘弹窗，避免 window.confirm 被拦截或不出现） */
+  const [pendingImportDifficulty, setPendingImportDifficulty] = useState<Difficulty | null>(null)
   const [aboutLeaving, setAboutLeaving] = useState(false)
   const aboutCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [aboutBtnPulse, setAboutBtnPulse] = useState(false)
+  /** 普通/困难：Worker 算棋期间为 true，底栏可加强「思考中」表现 */
+  const [aiWorkerBusy, setAiWorkerBusy] = useState(false)
 
   const [historyGames, setHistoryGames] = useState<HistoryGame[]>(() => {
     try {
@@ -1707,6 +1703,8 @@ function App() {
 
   /** 从「不可续弈」卡片切到「可续弈」卡片时触发一次增强动效 */
   const [catalogContinueBoost, setCatalogContinueBoost] = useState(false)
+  /** 「以此局面续弈」：先展开难度，再开局 */
+  const [catalogContinuePickOpen, setCatalogContinuePickOpen] = useState(false)
   const catalogContinueLastRef = useRef<{ id: PatternId | null; canContinue: boolean }>({
     id: null,
     canContinue: false,
@@ -1739,38 +1737,51 @@ function App() {
     catalogContinueLastRef.current = { id: catalogDetailId, canContinue: nextCan }
   }, [viewMode, catalogDetailId, catalogBoardSummary])
 
-  const continuePlayFromCatalog = useCallback(() => {
-    if (catalogDetailId === null) return
-    clearCatalogCloseTimer()
-    const item = PATTERN_CATALOG.find((x) => x.id === catalogDetailId)
-    if (!item) return
-    const slots = catalogAllSlots(catalogDetailId, item.template)
-    if (!catalogImportStatus(slots).canImport) return
-    const { board: nb, moves, winner: w, nextPlayer: np } =
-      buildPlayStateFromCatalogSlots(slots, difficulty)
-    if (w !== 0) return
-    importSnapshotRef.current = {
-      board: nb.slice(),
-      moves: moves.map((m) => ({ ...m })),
-      nextPlayer: np,
-    }
-    setBoard(nb)
-    setMoveHistory(moves)
-    setWinner(0)
-    setWinLine([])
-    setCurrentPlayer(np)
-    const last = slots[slots.length - 1]
-    setFocus({ x: last.x, y: last.y })
-    setHintTarget(null)
-    setCatalogDetailId(null)
-    setCatalogExitBuffer(null)
-    setCatalogRestoreTargetId(null)
-    setCatalogAnimFrame(0)
-    setPatternImportSession({ patternId: catalogDetailId, phase: 'simulating' })
-    setViewMode('play')
-    setSessionId(String(Date.now()))
-    savedForSessionRef.current = null
-  }, [catalogDetailId, difficulty, clearCatalogCloseTimer])
+  useEffect(() => {
+    if (viewMode !== 'catalog') setCatalogContinuePickOpen(false)
+  }, [viewMode])
+
+  useEffect(() => {
+    setCatalogContinuePickOpen(false)
+  }, [catalogDetailId])
+
+  const runContinuePlayFromCatalog = useCallback(
+    (chosenDiff: Difficulty) => {
+      if (catalogDetailId === null) return
+      clearCatalogCloseTimer()
+      const item = PATTERN_CATALOG.find((x) => x.id === catalogDetailId)
+      if (!item) return
+      const slots = catalogAllSlots(catalogDetailId, item.template)
+      if (!catalogImportStatus(slots).canImport) return
+      const { board: nb, moves, winner: w, nextPlayer: np } =
+        buildPlayStateFromCatalogSlots(slots, chosenDiff)
+      if (w !== 0) return
+      setDifficulty(chosenDiff)
+      setCatalogContinuePickOpen(false)
+      importSnapshotRef.current = {
+        board: nb.slice(),
+        moves: moves.map((m) => ({ ...m })),
+        nextPlayer: np,
+      }
+      setBoard(nb)
+      setMoveHistory(moves)
+      setWinner(0)
+      setWinLine([])
+      setCurrentPlayer(np)
+      const last = slots[slots.length - 1]
+      setFocus({ x: last.x, y: last.y })
+      setHintTarget(null)
+      setCatalogDetailId(null)
+      setCatalogExitBuffer(null)
+      setCatalogRestoreTargetId(null)
+      setCatalogAnimFrame(0)
+      setPatternImportSession({ patternId: catalogDetailId, phase: 'simulating' })
+      setViewMode('play')
+      setSessionId(String(Date.now()))
+      savedForSessionRef.current = null
+    },
+    [catalogDetailId, clearCatalogCloseTimer],
+  )
 
   useEffect(
     () => () => {
@@ -1782,9 +1793,23 @@ function App() {
         window.clearTimeout(catalogRestoreTimerRef.current)
         catalogRestoreTimerRef.current = null
       }
+      if (undoAnimTimerRef.current !== null) {
+        window.clearTimeout(undoAnimTimerRef.current)
+        undoAnimTimerRef.current = null
+      }
     },
     [],
   )
+
+  /** 离开对弈视图时中止悔棋退场（不提交局面变更） */
+  useEffect(() => {
+    if (viewMode === 'play') return
+    if (undoAnimTimerRef.current !== null) {
+      window.clearTimeout(undoAnimTimerRef.current)
+      undoAnimTimerRef.current = null
+    }
+    setUndoStoneExit(null)
+  }, [viewMode])
 
   useEffect(() => {
     if (viewMode !== 'play') {
@@ -1839,7 +1864,12 @@ function App() {
   historyTargetBoardRef.current = historyTargetBoard
 
   const [historyStableBoard, setHistoryStableBoard] = useState<Cell[] | null>(null)
-  const [historyCrossfade, setHistoryCrossfade] = useState<{ from: Cell[]; to: Cell[] } | null>(null)
+  const [historyCrossfade, setHistoryCrossfade] = useState<{
+    from: Cell[]
+    to: Cell[]
+    id: number
+  } | null>(null)
+  const historyCrossfadeSeqRef = useRef(0)
 
   useEffect(() => {
     if (viewMode !== 'history') {
@@ -1854,22 +1884,49 @@ function App() {
     }
     setHistoryStableBoard((stable) => {
       if (!stable) return historyTargetBoard.slice()
+      /** 顺序重播：每步与 replayStep 局面严格一致，勿保留旧 stable，否则与 crossfade.to 叠出「未来」子 */
+      if (replayPlaying) return historyTargetBoard.slice()
       return stable
     })
-  }, [viewMode, historyTargetBoard])
+  }, [viewMode, historyTargetBoard, replayPlaying])
 
-  useEffect(() => {
+  /** 必须在绘制前挂上 crossfade，否则会先闪一帧「已是新局面」再播过渡 */
+  useLayoutEffect(() => {
     if (viewMode !== 'history' || !historyTargetBoard || !historyStableBoard) return
-    if (boardsEqual(historyStableBoard, historyTargetBoard)) return
+    /** 顺序播放时不用叠子过渡，避免 to 滞后一帧仍画出未应手的子 */
+    if (replayPlaying) {
+      setHistoryCrossfade((cf) => (cf !== null ? null : cf))
+      return
+    }
+    if (boardsEqual(historyStableBoard, historyTargetBoard)) {
+      setHistoryCrossfade((cf) => (cf !== null ? null : cf))
+      return
+    }
 
-    setHistoryCrossfade({ from: historyStableBoard, to: historyTargetBoard.slice() })
+    const toSnapshot = historyTargetBoard.slice()
+    historyCrossfadeSeqRef.current += 1
+    const cfId = historyCrossfadeSeqRef.current
+    setHistoryCrossfade({ from: historyStableBoard, to: toSnapshot, id: cfId })
+    /** 略长于 CSS 0.46s，避免最后一帧仍带 forwards 的叠层与静态子切换叠成闪点 */
     const tid = window.setTimeout(() => {
       const latest = historyTargetBoardRef.current
       if (latest) setHistoryStableBoard(latest.slice())
       setHistoryCrossfade(null)
-    }, 460)
-    return () => clearTimeout(tid)
-  }, [viewMode, historyTargetBoard, historyStableBoard])
+    }, 480)
+    return () => {
+      window.clearTimeout(tid)
+      /** 仅当目标局面已变（换卡/步进打断过渡）时把 stable 收到本次动画的 to；与 to 仍相同时跳过，避免 Strict Mode 双跑误伤 */
+      const liveTarget = historyTargetBoardRef.current
+      if (
+        viewModeRef.current === 'history' &&
+        liveTarget &&
+        !boardsEqual(liveTarget, toSnapshot)
+      ) {
+        setHistoryStableBoard(toSnapshot.slice())
+      }
+      setHistoryCrossfade(null)
+    }
+  }, [viewMode, historyTargetBoard, historyStableBoard, replayPlaying])
 
   const duelScores = useMemo(() => {
     if (viewMode !== 'history') return scoresFromMoves(moveHistory)
@@ -2187,6 +2244,13 @@ function App() {
     setHistorySelectedIds([])
   }, [])
 
+  /** 取消选中历史卡片：回到「累计对抗」视图，并重置回放状态 */
+  const clearHistorySelection = useCallback(() => {
+    setSelectedHistoryIndex(-1)
+    setReplayStep(0)
+    setReplayPlaying(false)
+  }, [])
+
   const deleteSelectedHistoryGames = () => {
     if (historySelectedIds.length === 0) return
     const curId =
@@ -2218,6 +2282,13 @@ function App() {
   }
 
   const handleReset = () => {
+    if (undoAnimTimerRef.current !== null) {
+      window.clearTimeout(undoAnimTimerRef.current)
+      undoAnimTimerRef.current = null
+    }
+    setUndoStoneExit(null)
+    setPatternImportDockExiting(false)
+    setPendingImportDifficulty(null)
     setViewMode('play')
     setBoard(createEmptyBoard())
     setCurrentPlayer(1)
@@ -2286,58 +2357,118 @@ function App() {
     setPatternImportSession({ patternId: sess.patternId, phase: 'simulating' })
   }, [])
 
+  const handleResetRef = useRef(handleReset)
+  handleResetRef.current = handleReset
+
   const cancelPatternImport = () => {
-    handleReset()
+    if (patternImportSession?.phase !== 'ready') return
+    if (
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) {
+      handleReset()
+      return
+    }
+    setPatternImportDockExiting(true)
   }
 
-  /** 顶栏难度：普通对局仍整盘重置；棋形导入时保留局面与底部三按钮，仅更新倍率或整谱重建 */
-  const applyDifficultyChange = (newDiff: Difficulty) => {
-    setDifficulty(newDiff)
+  useEffect(() => {
+    if (!patternImportDockExiting) return
+    const t = window.setTimeout(() => {
+      handleResetRef.current()
+    }, 440)
+    return () => window.clearTimeout(t)
+  }, [patternImportDockExiting])
 
-    if (patternImportSession !== null && importSnapshotRef.current) {
-      const pid = patternImportSession.patternId
-      const item = PATTERN_CATALOG.find((x) => x.id === pid)
-      if (!item) {
-        handleReset()
-        return
-      }
-      const slots = catalogAllSlots(pid, item.template)
-      if (slots.length === 0 || !catalogImportStatus(slots).canImport) {
-        handleReset()
-        return
-      }
-      const phase = patternImportSession.phase
-      const baseLen = slots.length
-
-      if (moveHistory.length > baseLen) {
-        setMoveHistory((prev) => rescoreMoveHistoryForDifficulty(prev, newDiff))
-        setPatternImportSession({ patternId: pid, phase })
-        setSessionId(String(Date.now()))
-        savedForSessionRef.current = null
-        return
-      }
-
-      const st = buildPlayStateFromCatalogSlots(slots, newDiff)
-      importSnapshotRef.current = {
-        board: st.board.slice(),
-        moves: st.moves.map((m) => ({ ...m })),
-        nextPlayer: st.nextPlayer,
-      }
-      setBoard(st.board)
-      setMoveHistory(st.moves)
-      setWinner(0)
-      setWinLine([])
-      setCurrentPlayer(st.nextPlayer)
-      const last = slots[slots.length - 1]
-      setFocus({ x: last.x, y: last.y })
-      setHintTarget(null)
-      setPatternImportSession({ patternId: pid, phase })
-      setSessionId(String(Date.now()))
-      savedForSessionRef.current = null
-      setUndosRemaining(3)
+  /**
+   * 棋形导入后切换难度：按新倍率从导入局面「该局面重下」（清空导入后的额外手数）。
+   */
+  const applyImportDifficultyRestart = (newDiff: Difficulty) => {
+    const sess = patternImportSessionRef.current
+    if (!sess || !importSnapshotRef.current) {
+      handleReset()
+      return
+    }
+    const pid = sess.patternId
+    const item = PATTERN_CATALOG.find((x) => x.id === pid)
+    if (!item) {
+      handleReset()
+      return
+    }
+    const slots = catalogAllSlots(pid, item.template)
+    if (slots.length === 0 || !catalogImportStatus(slots).canImport) {
+      handleReset()
       return
     }
 
+    clearImportFlashTimers()
+    if (importSimTimerRef.current !== null) {
+      window.clearInterval(importSimTimerRef.current)
+      importSimTimerRef.current = null
+    }
+    importSimActiveRef.current = false
+    setResultFlash(null)
+    setImportOpponentIntro(false)
+    pendingYourTurnFlashAfterAiRef.current = false
+
+    const st = buildPlayStateFromCatalogSlots(slots, newDiff)
+    importSnapshotRef.current = {
+      board: st.board.slice(),
+      moves: st.moves.map((m) => ({ ...m })),
+      nextPlayer: st.nextPlayer,
+    }
+    setDifficulty(newDiff)
+    setBoard(st.board)
+    setMoveHistory(st.moves)
+    setWinner(0)
+    setWinLine([])
+    const np = st.nextPlayer
+    setCurrentPlayer(np)
+    const last = slots[slots.length - 1]
+    setFocus({ x: last.x, y: last.y })
+    setHintTarget(null)
+    setPatternImportSession({ patternId: pid, phase: 'ready' })
+    setUndosRemaining(3)
+    setSessionId(String(Date.now()))
+    savedForSessionRef.current = null
+    aiWorkerRequestIdRef.current += 1
+    setBoardKick((k) => (k === 0 ? 1 : 0))
+
+    if (np === 2) {
+      pendingYourTurnFlashAfterAiRef.current = true
+      flashImportOpponentFirst()
+    } else {
+      pendingYourTurnFlashAfterAiRef.current = false
+      flashImportYourTurn()
+    }
+  }
+
+  const confirmPendingImportDifficulty = () => {
+    if (pendingImportDifficulty === null) return
+    const d = pendingImportDifficulty
+    setPendingImportDifficulty(null)
+    applyImportDifficultyRestart(d)
+  }
+
+  useEffect(() => {
+    if (pendingImportDifficulty === null) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPendingImportDifficulty(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [pendingImportDifficulty])
+
+  /** 顶栏难度：普通对局整盘重置；棋形导入时改难度须确认并从导入局面重下 */
+  const applyDifficultyChange = (newDiff: Difficulty) => {
+    if (newDiff === difficulty) return
+
+    if (patternImportSession !== null && importSnapshotRef.current) {
+      setPendingImportDifficulty(newDiff)
+      return
+    }
+
+    setDifficulty(newDiff)
     handleReset()
   }
 
@@ -2346,6 +2477,7 @@ function App() {
     if (viewMode !== 'play') return
     if (patternImportSession?.phase === 'simulating') return
     if (undosRemaining <= 0) return
+    if (undoStoneExit) return
 
     const h = moveHistory
     const minLen =
@@ -2358,45 +2490,76 @@ function App() {
     const pops = needTwo ? 2 : 1
     if (h.length - pops < minLen) return
 
-    aiWorkerRequestIdRef.current += 1
-
     const next = h.slice(0, h.length - pops).map((m, i) => ({ ...m, index: i + 1 }))
     const newBoard = boardFromMoves(next, next.length)
+    const removed = h.slice(h.length - pops)
 
-    clearImportFlashTimers()
-    setResultFlash(null)
-    setImportOpponentIntro(false)
-    pendingYourTurnFlashAfterAiRef.current = false
+    const commitUndo = () => {
+      if (undoAnimTimerRef.current !== null) {
+        window.clearTimeout(undoAnimTimerRef.current)
+        undoAnimTimerRef.current = null
+      }
+      setUndoStoneExit(null)
 
-    setUndosRemaining((u) => u - 1)
-    setBoard(newBoard)
-    setMoveHistory(next)
-    setHintTarget(null)
-    setBoardKick((k) => (k === 0 ? 1 : 0))
+      aiWorkerRequestIdRef.current += 1
 
-    if (next.length === 0) {
-      setWinner(0)
-      setWinLine([])
-      setCurrentPlayer(1)
-      setFocus(null)
+      clearImportFlashTimers()
+      setResultFlash(null)
+      setImportOpponentIntro(false)
+      pendingYourTurnFlashAfterAiRef.current = false
+
+      setUndosRemaining((u) => u - 1)
+      setBoard(newBoard)
+      setMoveHistory(next)
+      setHintTarget(null)
+      setBoardKick((k) => (k === 0 ? 1 : 0))
+
+      if (next.length === 0) {
+        setWinner(0)
+        setWinLine([])
+        setCurrentPlayer(1)
+        setFocus(null)
+        return
+      }
+
+      const last = next[next.length - 1]
+      const w = checkWin(newBoard, last.x, last.y, last.player)
+      if (w) {
+        setWinner(last.player)
+        setWinLine(w.line)
+      } else {
+        setWinner(0)
+        setWinLine([])
+      }
+      const np: Player = next.length % 2 === 0 ? 1 : 2
+      setCurrentPlayer(np)
+      setFocus({ x: last.x, y: last.y })
+    }
+
+    if (
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) {
+      commitUndo()
       return
     }
 
-    const last = next[next.length - 1]
-    const w = checkWin(newBoard, last.x, last.y, last.player)
-    if (w) {
-      setWinner(last.player)
-      setWinLine(w.line)
-    } else {
-      setWinner(0)
-      setWinLine([])
+    if (undoAnimTimerRef.current !== null) {
+      window.clearTimeout(undoAnimTimerRef.current)
+      undoAnimTimerRef.current = null
     }
-    const np: Player = next.length % 2 === 0 ? 1 : 2
-    setCurrentPlayer(np)
-    setFocus({ x: last.x, y: last.y })
+    setUndoStoneExit({
+      key: Date.now(),
+      cells: removed.map((m) => ({ x: m.x, y: m.y, player: m.player })),
+    })
+    undoAnimTimerRef.current = window.setTimeout(commitUndo, 400)
   }
 
   const handleCellClick = (x: number, y: number) => {
+    if (viewMode === 'history') {
+      clearHistorySelection()
+      return
+    }
     if (viewMode !== 'play') return
     if (patternImportSession?.phase === 'simulating') return
     if (gameOver || currentPlayer !== 1) return
@@ -2528,17 +2691,20 @@ function App() {
         if (cancelled) return
 
         if (diff === 'easy') {
+          setAiWorkerBusy(false)
           const aiMove = chooseAIMove(boardSnap, diff)
           if (!aiMove) return
           applyAiMove(aiMove)
           return
         }
 
+        setAiWorkerBusy(true)
         const worker = aiWorkerRef.current
         const requestId = ++aiWorkerRequestIdRef.current
 
         const onWorkerMessage = (ev: MessageEvent<{ requestId: number; move: ScoredMove | null }>) => {
           if (cancelled || ev.data.requestId !== aiWorkerRequestIdRef.current) return
+          setAiWorkerBusy(false)
           const aiMove = ev.data.move
           if (!aiMove) return
           applyAiMove(aiMove)
@@ -2553,6 +2719,7 @@ function App() {
           })
         } else {
           const aiMove = chooseAIMove(boardSnap, diff)
+          setAiWorkerBusy(false)
           if (!aiMove) return
           applyAiMove(aiMove)
         }
@@ -2560,6 +2727,7 @@ function App() {
     })
     return () => {
       cancelled = true
+      setAiWorkerBusy(false)
       cancelAnimationFrame(raf1)
       if (raf2) cancelAnimationFrame(raf2)
     }
@@ -2790,6 +2958,17 @@ function App() {
     return currentPlayer === 1 ? '轮到你（黑子）' : 'AI 思考中…'
   }, [winner, currentPlayer, patternImportSession?.phase, importOpponentIntro])
 
+  /** 人机对弈且轮到白方、等待落子时，底栏用高亮样式提示「AI 思考中」 */
+  const playStatusAiThinking = useMemo(
+    () =>
+      viewMode === 'play' &&
+      winner === 0 &&
+      currentPlayer === 2 &&
+      !importOpponentIntro &&
+      patternImportSession?.phase !== 'simulating',
+    [viewMode, winner, currentPlayer, importOpponentIntro, patternImportSession?.phase],
+  )
+
   const viewModeSlideSlot = viewMode === 'play' ? '0' : viewMode === 'history' ? '1' : '2'
 
   /** 三列工作台各自棋盘/连线（与底栏滑轨同步横向滑动） */
@@ -2842,10 +3021,7 @@ function App() {
         viewMode === 'history' && selectedHistoryIndex < 0
           ? createEmptyBoard()
           : viewMode === 'history' && selectedHistoryIndex >= 0
-            ? (historyCrossfade?.to ??
-                historyStableBoard ??
-                historyTargetBoard ??
-                boardFromMoves(moves, step))
+            ? (historyTargetBoard ?? boardFromMoves(moves, step))
             : boardFromMoves(moves, step)
       const rw = gVisible?.winner ?? 0
       let colDisplayWinLine: [number, number][] = []
@@ -3050,7 +3226,8 @@ function App() {
                       } ${
                         colMode === 'history' &&
                         viewMode === 'history' &&
-                        historyCrossfade !== null
+                        historyCrossfade !== null &&
+                        !replayPlaying
                           ? 'board-zone--history-crossfade'
                           : ''
                       }`}
@@ -3106,9 +3283,9 @@ function App() {
                     const histCf =
                       colMode === 'history' &&
                       viewMode === 'history' &&
-                      historyCrossfade !== null
+                      historyCrossfade !== null &&
+                      !replayPlaying
                     const histFrom = histCf ? historyCrossfade.from[idx]! : null
-                    const histTo = histCf ? historyCrossfade.to[idx]! : null
 
                     const isCatalogStone =
                       colMode === 'catalog' &&
@@ -3142,6 +3319,17 @@ function App() {
                       stoneAfterglowKeys.has(posKey) &&
                       !isLast
 
+                    const undoVanishIdx =
+                      colMode === 'play' && viewMode === 'play' && undoStoneExit
+                        ? undoStoneExit.cells.findIndex((c) => c.x === x && c.y === y)
+                        : -1
+                    const undoVanish = undoVanishIdx >= 0
+                    /** 历史棋盘不要用 .stone-last：会触发 dropInLast，换卡/crossfade 结束再挂类会再播一次落子动效而闪 */
+                    const historyStoneLastClass =
+                      isLast &&
+                      !undoVanish &&
+                      !(colMode === 'history' && viewMode === 'history')
+
                     const inset = 18
                     const inner = Math.max(0, boardPx - inset * 2)
                     const cellPx = inner / (BOARD_SIZE - 1)
@@ -3152,29 +3340,35 @@ function App() {
                       <button
                         key={`${x}-${y}`}
                         className={`pt ${isOnWinLine ? 'pt-win' : ''} ${isHint ? 'pt-hint' : ''} ${
-                          histCf && histFrom !== histTo ? 'pt--history-cross' : ''
+                          histCf && histFrom !== cell ? 'pt--history-cross' : ''
                         }`}
                         style={{ left, top }}
                         onClick={() => handleCellClick(x, y)}
-                        disabled={colMode !== 'play' || colMode !== viewMode}
+                        disabled={colMode !== viewMode}
                         aria-label={`落子 (${x + 1}, ${y + 1})`}
                       >
                         <span className="pt-cross" aria-hidden="true" />
                         {histCf ? (
-                          histFrom !== histTo ? (
-                            <span className="history-stone-stack" aria-hidden="true">
+                          histFrom !== cell ? (
+                            <span
+                              className="history-stone-stack"
+                              aria-hidden="true"
+                              key={`hcf-${historyCrossfade!.id}-${x}-${y}`}
+                            >
                               {histFrom !== 0 && (
                                 <span
+                                  key={`out-${historyCrossfade!.id}`}
                                   className={`stone stone-${
                                     histFrom === 1 ? 'black' : 'white'
                                   } history-stone-out`}
                                   aria-hidden="true"
                                 />
                               )}
-                              {histTo !== 0 && (
+                              {cell !== 0 && (
                                 <span
+                                  key={`in-${historyCrossfade!.id}`}
                                   className={`stone stone-${
-                                    histTo === 1 ? 'black' : 'white'
+                                    cell === 1 ? 'black' : 'white'
                                   } history-stone-in`}
                                   aria-hidden="true"
                                 />
@@ -3183,7 +3377,7 @@ function App() {
                           ) : cell !== 0 ? (
                             <span
                               className={`stone stone-${cell === 1 ? 'black' : 'white'} ${
-                                isLast ? 'stone-last' : ''
+                                historyStoneLastClass ? 'stone-last' : ''
                               }`}
                               aria-hidden="true"
                             />
@@ -3191,12 +3385,13 @@ function App() {
                         ) : cell !== 0 ? (
                           <span
                             className={`stone stone-${cell === 1 ? 'black' : 'white'} ${
-                              isLast ? 'stone-last' : ''
+                              historyStoneLastClass ? 'stone-last' : ''
                             } ${stoneAfterglowPlay ? 'stone-afterglow' : ''} ${
                               colMode === 'play' &&
                               viewMode === 'play' &&
                               isLast &&
-                              cell === 2
+                              cell === 2 &&
+                              !undoVanish
                                 ? 'stone-ai-drop'
                                 : ''
                             } ${
@@ -3205,7 +3400,12 @@ function App() {
                               isLast
                                 ? 'stone-catalog'
                                 : ''
-                            }`}
+                            } ${undoVanish ? 'stone-undo-vanish' : ''}`}
+                            style={
+                              undoVanish
+                                ? { animationDelay: `${undoVanishIdx * 68}ms` }
+                                : undefined
+                            }
                             aria-hidden="true"
                           />
                         ) : null}
@@ -3309,7 +3509,7 @@ function App() {
                 </div>
                 <p className="play-side-desc">
                   {difficulty === 'easy'
-                    ? '简单：在必赢、必防时不会乱下；其它局面带点随机，不总选最强应手，更像陪练。本档有落子提示光。'
+                    ? '简单：AI 在必赢、必防时不含糊，其余带点随机。提示光优先必胜与封堵对方成五，并浅层择优助进攻；跟灯易保持优势。'
                     : difficulty === 'hard'
                       ? '困难：AI 想得最深，还会在多个候选好点里再模拟、再取舍，整体最难对付；无提示。更多说明见「关于本作」。'
                       : '普通：比简单「多看几步棋」，应手更稳、更难缠；本局只记招式与分数，无提示光。'}
@@ -3380,7 +3580,7 @@ function App() {
                 ) {
                   return
                 }
-                setSelectedHistoryIndex(-1)
+                clearHistorySelection()
               }}
             >
               <div className="history-header-row">
@@ -3565,6 +3765,10 @@ function App() {
                             selected ? 'history-card-selected' : ''
                           }`}
                           onClick={() => {
+                            if (selected) {
+                              clearHistorySelection()
+                              return
+                            }
                             setSelectedHistoryIndex(realIdx)
                             setReplayStep(g.moves.length)
                             setReplayPlaying(false)
@@ -3936,16 +4140,66 @@ function App() {
                             catalogContinueBoost ? 'catalog-continue-bar--boost' : ''
                           }`}
                         >
-                          <button
-                            type="button"
-                            className="pill catalog-continue-btn"
-                            onClick={continuePlayFromCatalog}
-                          >
-                            以此局面续弈
-                          </button>
+                          {!catalogContinuePickOpen ? (
+                            <button
+                              type="button"
+                              className="pill catalog-continue-btn"
+                              onClick={() => setCatalogContinuePickOpen(true)}
+                            >
+                              以此局面续弈
+                            </button>
+                          ) : (
+                            <div
+                              className="catalog-continue-pick"
+                              role="group"
+                              aria-label="选择续弈难度后开局"
+                            >
+                              <span className="catalog-continue-pick-label">续弈难度</span>
+                              <div className="catalog-continue-diff-row">
+                                <button
+                                  type="button"
+                                  className={`catalog-continue-diff-opt${
+                                    difficulty === 'easy' ? ' catalog-continue-diff-opt--preset' : ''
+                                  }`}
+                                  onClick={() => runContinuePlayFromCatalog('easy')}
+                                  title="必赢必防处认真下，其余带随机；有落子提示光"
+                                >
+                                  简单
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`catalog-continue-diff-opt${
+                                    difficulty === 'normal' ? ' catalog-continue-diff-opt--preset' : ''
+                                  }`}
+                                  onClick={() => runContinuePlayFromCatalog('normal')}
+                                  title="比简单多看几步棋，整体更强；无提示"
+                                >
+                                  普通
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`catalog-continue-diff-opt${
+                                    difficulty === 'hard' ? ' catalog-continue-diff-opt--preset' : ''
+                                  }`}
+                                  onClick={() => runContinuePlayFromCatalog('hard')}
+                                  title="深算并在多点模拟后再选，最难档；无提示"
+                                >
+                                  困难
+                                </button>
+                              </div>
+                              <button
+                                type="button"
+                                className="pill catalog-continue-cancel"
+                                onClick={() => setCatalogContinuePickOpen(false)}
+                              >
+                                取消
+                              </button>
+                            </div>
+                          )}
                           <span className="catalog-continue-hint" aria-live="polite">
-                            {catalogBoardSummary.nextHint} · 共 {catalogBoardSummary.total} 子（黑{' '}
-                            {catalogBoardSummary.black} · 白 {catalogBoardSummary.white}）
+                            {catalogContinuePickOpen
+                              ? '点选难度后即进入人机对弈；与顶栏难度一致。'
+                              : `${catalogBoardSummary.nextHint} · 共 ${catalogBoardSummary.total} 子（黑 ${catalogBoardSummary.black} · 白 ${catalogBoardSummary.white}）`}
                           </span>
                         </div>
                       ) : null}
@@ -3973,8 +4227,16 @@ function App() {
               }`}
               aria-hidden={viewMode !== 'play'}
             >
-              <div className="status-strip status-strip--under-board">
-                <div className="status-main">{currentStatus}</div>
+              <div
+                className={`status-strip status-strip--under-board${
+                  playStatusAiThinking ? ' status-strip--ai-thinking' : ''
+                }${aiWorkerBusy && playStatusAiThinking ? ' status-strip--ai-worker-busy' : ''}`}
+              >
+                <div
+                  className={`status-main${playStatusAiThinking ? ' status-main--ai-thinking' : ''}`}
+                >
+                  {currentStatus}
+                </div>
                 <div className="status-secondary">
                   总评分：<span className="score">{totalScore}</span>
                 </div>
@@ -3990,7 +4252,8 @@ function App() {
                       patternImportSession?.phase !== 'simulating' &&
                       undosRemaining > 0 &&
                       moveHistory.length > importMin &&
-                      moveHistory.length - pops >= importMin
+                      moveHistory.length - pops >= importMin &&
+                      !undoStoneExit
                     return (
                       <button
                         type="button"
@@ -4018,18 +4281,35 @@ function App() {
                 </div>
               </div>
               {patternImportSession?.phase === 'ready' && (
-                <div className="pattern-import-dock" role="group" aria-label="棋形导入选项">
-                  <button type="button" className="pill pattern-import-dock__btn" onClick={replayImportSamePosition}>
+                <div
+                  className={`pattern-import-dock${
+                    patternImportDockExiting ? ' pattern-import-dock--exit' : ''
+                  }`}
+                  role="group"
+                  aria-label="棋形导入选项"
+                >
+                  <button
+                    type="button"
+                    className="pill pattern-import-dock__btn"
+                    disabled={patternImportDockExiting}
+                    onClick={replayImportSamePosition}
+                  >
                     该局面重下
                   </button>
                   <button
                     type="button"
                     className="pill pattern-import-dock__btn"
+                    disabled={patternImportDockExiting}
                     onClick={restartImportRandomSimulation}
                   >
                     重新随机以该棋型继续下
                   </button>
-                  <button type="button" className="pill pattern-import-dock__btn" onClick={cancelPatternImport}>
+                  <button
+                    type="button"
+                    className="pill pattern-import-dock__btn"
+                    disabled={patternImportDockExiting}
+                    onClick={cancelPatternImport}
+                  >
                     取消棋形导入
                   </button>
                 </div>
@@ -4105,7 +4385,7 @@ function App() {
                 <div className="status-secondary">
                   {catalogBoardSummary
                     ? catalogBoardSummary.canContinue
-                      ? `${catalogBoardSummary.nextHint} · 侧栏可选「以此局面续弈」`
+                      ? `${catalogBoardSummary.nextHint} · 侧栏「以此局面续弈」后可选难度开局`
                       : `${catalogBoardSummary.nextHint} · ${catalogImportBlockHint(catalogBoardSummary.importBlock)}`
                     : '点选侧栏卡片：棋盘演示与说明；可将演示局面带入人机对弈'}
                 </div>
@@ -4166,7 +4446,7 @@ function App() {
                 </p>
                 <h3 className="about-modal-subtitle">AI 与参考实现</h3>
                 <p className="about-modal-text">
-                  <strong>简单</strong>：该赢、该挡时不含糊；其它时候带点随机，不总下最强点，适合入门，并有落子提示。
+                  <strong>简单</strong>：该赢、该挡时不含糊；落子提示光同步考虑必胜、必防与浅层择优。其它时候 AI 带点随机，适合入门。
                   <strong>普通</strong>：比简单多想几步，更难缠；无提示。
                   <strong>困难</strong>：想得最深，还会在几个好点里再模拟几手棋来挑点；搜索中结合全盘线型评估与邻域启发（仍无神经网络）。
                   具体算法见 <code>src/ai/engine.ts</code>；白方在 Web Worker 里算棋，避免卡住界面。
@@ -4199,6 +4479,56 @@ function App() {
                     <dd>TRAE、DeepSeek、Kimi</dd>
                   </div>
                 </dl>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+
+      {pendingImportDifficulty !== null &&
+        createPortal(
+          <div
+            className="about-modal-root"
+            role="presentation"
+            onClick={() => setPendingImportDifficulty(null)}
+          >
+            <div
+              className="about-modal-card about-modal-card--confirm difficulty-confirm-card about-modal-card--enter"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="difficulty-confirm-title"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h2 id="difficulty-confirm-title" className="about-modal-title">
+                切换对局难度
+              </h2>
+              <p className="about-modal-text difficulty-confirm-lead">
+                将按新倍率从导入棋形局面<strong>重新开始本局</strong>（当前已下的手数将清空）。确认切换吗？
+              </p>
+              <p className="difficulty-confirm-switch" aria-live="polite">
+                <span className="difficulty-confirm-from">{difficultyLabel(difficulty)}</span>
+                <span className="difficulty-confirm-arrow" aria-hidden="true">
+                  →
+                </span>
+                <span className="difficulty-confirm-to">
+                  {difficultyLabel(pendingImportDifficulty)}
+                </span>
+              </p>
+              <div className="difficulty-confirm-actions">
+                <button
+                  type="button"
+                  className="pill difficulty-confirm-btn-cancel"
+                  onClick={() => setPendingImportDifficulty(null)}
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className="pill active difficulty-confirm-btn-ok"
+                  onClick={confirmPendingImportDifficulty}
+                >
+                  确定并重下
+                </button>
               </div>
             </div>
           </div>,
