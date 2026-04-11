@@ -72,14 +72,28 @@ function checkWin(board: Cell[], lastX: number, lastY: number, player: Player) {
   return null
 }
 
-function evaluateLine(line: Cell[], who: Player, opp: Player) {
+/** 五连须包含本手在线段字符串中的下标，否则 /11111/ 会匹配到窗口另一侧已有五连而误标「成五」 */
+function fiveOfCharOverlapsIndex(s: string, ch: '1', centerIdx: number): boolean {
+  for (let i = 0; i <= s.length - 5; i++) {
+    if (s.slice(i, i + 5) !== ch.repeat(5)) continue
+    if (centerIdx >= i && centerIdx <= i + 4) return true
+  }
+  return false
+}
+
+function evaluateLine(line: Cell[], who: Player, opp: Player, centerIdx?: number) {
   const s = line.map((c) => (c === who ? '1' : c === opp ? '2' : '0')).join('')
   let best = { score: 0, pattern: '' }
   for (const p of PATTERN_SCORES) {
-    if (p.pattern.test(s)) {
-      const score = p.self
-      if (score > best.score) best = { score, pattern: p.name }
+    if (p.name === '成五') {
+      if (centerIdx === undefined || centerIdx < 0) continue
+      if (!p.pattern.test(s)) continue
+      if (!fiveOfCharOverlapsIndex(s, '1', centerIdx)) continue
+    } else if (!p.pattern.test(s)) {
+      continue
     }
+    const score = p.self
+    if (score > best.score) best = { score, pattern: p.name }
   }
   const sOpp = line.map((c) => (c === opp ? '1' : c === who ? '2' : '0')).join('')
   for (const p of PATTERN_SCORES) {
@@ -212,16 +226,18 @@ export function evaluateBoardAt(board: Cell[], x: number, y: number, who: Player
 
   for (const [dx, dy] of DIRS) {
     const line: Cell[] = []
+    let centerIdx = -1
     /* 11 格窗口，减少「三连贴边」时线段过短导致棋形漏检 */
     for (let offset = -5; offset <= 5; offset++) {
       const xx = x + dx * offset
       const yy = y + dy * offset
       if (inBounds(xx, yy)) {
+        if (xx === x && yy === y) centerIdx = line.length
         line.push(temp[indexOf(xx, yy)])
       }
     }
     if (line.length >= 5) {
-      const { score, pattern } = evaluateLine(line, who, opp)
+      const { score, pattern } = evaluateLine(line, who, opp, centerIdx)
       if (score > 0) {
         totalScore += score
         if (score > 0 && !bestPattern) bestPattern = pattern

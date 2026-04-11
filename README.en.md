@@ -1,25 +1,45 @@
 # Gomoku · Liquid Glass
 
-**[简体中文](README.md)** · Browser **Gomoku** (five-in-a-row) with **React 19**, **TypeScript**, and **Vite** — dark liquid-glass UI, human vs AI, local history & replay, and a pattern encyclopedia with board demos.
+**[简体中文](README.md)** · Browser **Gomoku** (five-in-a-row) built with **React 19**, **TypeScript**, and **Vite** — dark liquid-glass UI, human vs AI, local history & replay, and a pattern encyclopedia with board demos.
 
-**Changelog:** [CHANGELOG.md](CHANGELOG.md)
+|  |  |
+|--|--|
+| **Changelog** | [CHANGELOG.md](CHANGELOG.md) |
+| **Live demo (GitHub Pages)** | [stianyu798-arch.github.io/Liquid-Glass-Gomoku](https://stianyu798-arch.github.io/Liquid-Glass-Gomoku/) |
 
-**Live demo (GitHub Pages):** [stianyu798-arch.github.io/Liquid-Glass-Gomoku](https://stianyu798-arch.github.io/Liquid-Glass-Gomoku/)
+---
+
+## Overview
+
+This project is **frontend-only**: no native app and no separate backend; data stays in your browser. The UI uses glass-style panels and gradients. The board and side panels scale with the window; on narrow viewports the main column stacks vertically, and in play mode the sidebar lines up with the board height to avoid large empty areas.
 
 ---
 
 ## Features
 
-| Area | Description |
-|------|-------------|
-| **Play** | 15×15; you are black, AI is white; **easy** (after tactics, **softmax temperature** over heuristic scores); **normal** (**alpha-beta**); **hard** (deeper **α-β** + root **Monte Carlo rollouts**; forced blocks mainly for severe threats—open-three class threats are left to search to balance **attack vs defense**; **no** neural net). |
-| **Scoring & names** | In **easy** mode, shapes are scored and named; moves show in the side move list. |
-| **Hints (easy)** | Suggested intersection can be highlighted on your turn (other modes: no hint). |
-| **Win & line** | Five in a row wins, line highlighted; “New game” can pulse after the game. |
-| **History** | Games stored locally in the browser; select a game, step or auto-replay; aggregate duel bar and per-game replay. |
-| **Encyclopedia** | Pattern templates with animated demos and text on the right. |
-| **Pattern import** | Bring a demo position into human vs AI when rules allow; optional random simulation until a translatable match appears; prompts when the next player is white. |
-| **UI** | Responsive layout; on narrow screens the main column stacks vertically; play view keeps the side column aligned with the board; history view lets the side panel end with its content (no huge empty glass on long screens). |
+### Human vs AI
+
+- **Board**: standard **15×15**; by default **you play black**, the AI plays white.
+- **Easy**: after forced tactics (must-win / must-block, etc.), candidate moves are sampled with **softmax temperature** over static scores — varied play. **Only this mode** offers move hints and pattern naming in the side list.
+- **Normal**: **alpha-beta** search with **neighborhood-based** leaf evaluation.
+- **Hard**: deeper **alpha-beta** plus **Monte Carlo rollouts** at the root; leaves can use a **full-board line-pattern diff** aligned with the project docs, move ordering, and a neighborhood radius; severe threats may still be blocked instantly, while lighter threats are left to search to balance **attack vs defense**. **No neural network.**
+
+### In-game helpers
+
+- **Move list / trend (easy)**: important shapes get scores and names (open three, rush four, etc.).
+- **Hints (easy)**: optional highlight on the suggested intersection on your turn.
+- **Win & line**: five in a row wins with a highlighted line; “New game” can pulse after the game.
+
+### History & encyclopedia
+
+- **History**: games stored in **`localStorage`**; pick a game, step or auto-replay, with aggregate stats.
+- **Encyclopedia**: pattern templates with board animation and text on the right.
+- **Pattern import**: bring a demo position into human vs AI; optional random simulation until a translatable match appears; prompts when the next player is white.
+
+### Layout & touch
+
+- The board scales with its container; on **narrow screens** max edge length, header chrome, and glass padding are tuned so the grid stays usable.
+- Intersections align with the grid and cross guides; on **coarse pointers**, hit targets are enlarged **without letting adjacent stones overlap** (see `.pt` in `App.css`).
 
 ---
 
@@ -28,26 +48,27 @@
 - **React 19**, **TypeScript**, **Vite 8** (`@vitejs/plugin-react`)
 - **ESLint** (`typescript-eslint`, React Hooks)
 
-### Tooling
+### Architecture
 
-- **Cursor** (editor and AI-assisted development)
-- **DeepSeek** (model-assisted workflow)
+- **Normal / hard** AI runs in a **Web Worker** ([`src/ai/ai.worker.ts`](src/ai/ai.worker.ts)) so long searches don’t freeze the UI; **easy** stays on the main thread.
+- Shared search and evaluation logic lives in [`src/ai/engine.ts`](src/ai/engine.ts).
 
-All game and AI logic runs **in the browser**. **No backend.** **Normal / hard** AI search runs in a **Web Worker** (`src/ai/ai.worker.ts`); **easy** stays on the main thread. Shared logic lives in `src/ai/engine.ts`: **normal** uses neighborhood-based leaf eval; **hard** can use full-board line-pattern diff plus move ordering / radius-2 candidates (see **Hard** above).
+### AI summary
 
-### AI notes & references
+| Mode | Notes |
+|------|--------|
+| **Easy** | After forced moves, softmax sampling over candidates (temperature: `EASY_SOFTMAX_TEMPERATURE`). |
+| **Normal** | `pickBestMoveMinimax(board, 3)`; leaf eval slightly favors defense (opponent best ×1.08). |
+| **Hard** | `pickBestMoveHardHybrid`: alpha-beta plus root MC rollouts; optional doc-style full-board line diff, quick ordering, radius-2 candidates. |
 
-- **Easy**: After forced win/block, **softmax sampling** over candidates (temperature in `EASY_SOFTMAX_TEMPERATURE`).
-- **Normal**: **Alpha-beta** with `pickBestMoveMinimax(board, 3)`; leaf eval slightly favors defense (opponent best point ×1.08).
-- **Hard**: **Alpha-beta** (deeper) then root **Monte Carlo rollouts** (`pickBestMoveHardHybrid`); the hard search path can use a **doc-style full-board line pattern diff** at leaves, **move ordering** by quick post-move board score, and **candidate radius 2**, together with the existing **instant-block** threshold and weights. **No** neural net.
-- **External refs**: [gomoku_rl](https://github.com/guokezhen999/gomoku_rl) (deep RL / PyTorch); [gobang](https://github.com/lihongxun945/gobang) (classic alpha-beta, JS). Independent of this frontend—see in-app **About**.
+**External references** (independent of this repo): [gomoku_rl](https://github.com/guokezhen999/gomoku_rl) (deep RL / PyTorch), [gobang](https://github.com/lihongxun945/gobang) (classic alpha-beta, JS). See in-app **About** for more.
 
 ---
 
 ## Requirements
 
 - **Node.js** 20+ recommended
-- Modern browser (`backdrop-filter`, CSS grid/flex, etc.)
+- Modern browser (`backdrop-filter`, CSS Grid / Flex, etc.)
 
 ---
 
@@ -72,13 +93,11 @@ Open the URL printed in the terminal (often `http://localhost:5173`).
 ## Build & deploy
 
 - Build output: **`dist/`**
-- **`base: './'`** in `vite.config.ts` — relative URLs, works on **GitHub Pages** under any repo path.
+- **`base: './'`** in `vite.config.ts` — relative asset URLs for **GitHub Pages** under any repo path.
 
-This repo includes a **GitHub Actions** workflow (`.github/workflows/deploy-pages.yml`) that builds and deploys on push to **`main`** or **`master`**. In **Settings → Pages**, set the source to **GitHub Actions** to match the workflow.
+This repo includes [`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml): push to **`main`** or **`master`** triggers build and deploy. In **Settings → Pages**, set the source to **GitHub Actions**.
 
-Typical site URL:
-
-`https://<user>.github.io/<repo>/`
+Typical URL: `https://<user>.github.io/<repo>/`
 
 ---
 
@@ -95,8 +114,8 @@ gomoku-liquid-glass/
 ├── public/
 ├── src/
 │   ├── ai/
-│   │   ├── engine.ts       # AI search & eval (neighborhood / hard global-line diff)
-│   │   └── ai.worker.ts    # normal/hard off the main thread
+│   │   ├── engine.ts       # Search & board evaluation
+│   │   └── ai.worker.ts    # Normal / hard off the main thread
 │   ├── App.tsx
 │   ├── App.css
 │   ├── main.tsx

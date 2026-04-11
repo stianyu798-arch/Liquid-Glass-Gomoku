@@ -1,7 +1,8 @@
 /* 五子棋 Liquid Glass UI 样式 */
 
 :root {
-  --layout-max: 1180px;
+  /* 主列最大宽：过窄时整页像被「大视口」框住；略放宽以利用横屏 */
+  --layout-max: 1280px;
   /* 水平内边距：断点见文末 @media；窄屏由 max-width:960px 覆写为 12px */
   --layout-pad-x: 16px;
   /* app-shell：顶栏与主内容区之间 */
@@ -9,7 +10,8 @@
   /*
    * 主内容区与最底状态栏间距：按视口高度比例（1vh = 视口高度 1%），并设上限避免空隙过大。
    */
-  --main-to-footer-gap: clamp(6px, 1.5vh, 12px);
+  /* 棋盘列与底栏条间距（gap + 底栏壳 padding-top 各用一次，勿过大） */
+  --main-to-footer-gap: clamp(4px, 0.9vh, 7px);
   /* 棋盘列与侧栏列：固定槽间距（响应式断点调档，不用 vw/clamp） */
   --main-grid-column-gap: 32px;
   /*
@@ -49,14 +51,15 @@
   :root {
     --layout-pad-x: 20px;
     --main-grid-column-gap: 40px;
-    --main-to-footer-gap: clamp(6px, 1.4vh, 12px);
+    --main-to-footer-gap: clamp(4px, 0.85vh, 7px);
     --app-chrome-y: 360px;
   }
 }
 
 @media (min-width: 1200px) {
   :root {
-    --layout-pad-x: 24px;
+    /* 与加宽的 layout-max 配套，略收边距以免总可视宽度反而变挤 */
+    --layout-pad-x: 22px;
     --main-grid-column-gap: 48px;
     --layout-section-gap: 28px;
     --app-chrome-y: 400px;
@@ -116,7 +119,8 @@
   margin-right: auto;
   padding-top: max(16px, env(safe-area-inset-top, 0px));
   padding-right: max(var(--layout-pad-x), env(safe-area-inset-right, 0px));
-  padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+  /* 略增底空，避免底栏渐隐区贴 app-root 边被 overflow 吃出「切线」观感 */
+  padding-bottom: calc(36px + env(safe-area-inset-bottom, 0px));
   padding-left: max(var(--layout-pad-x), env(safe-area-inset-left, 0px));
   box-sizing: border-box;
   display: flex;
@@ -141,14 +145,41 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  overflow: hidden;
   backdrop-filter: blur(18px) saturate(130%);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.02)),
-    radial-gradient(circle at 0 0, rgba(79, 70, 229, 0.2), transparent 60%),
-    rgba(7, 12, 28, 0.86);
+  -webkit-backdrop-filter: blur(18px) saturate(130%);
+  /* 本体仅铺底色，高光层见 ::before，便于左右做渐隐而不压暗标题/按钮 */
+  background: rgba(7, 12, 28, 0.88);
   box-shadow:
     0 26px 80px rgba(0, 0, 0, 0.72),
     0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+/* 顶栏左右：高光在视口两侧渐隐为透明，避免矩形块「齐切」突兀 */
+.top-bar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.02)),
+    radial-gradient(ellipse 90% 140% at 0% -10%, rgba(79, 70, 229, 0.26), transparent 62%),
+    radial-gradient(ellipse 85% 130% at 100% -8%, rgba(59, 130, 246, 0.16), transparent 60%);
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    #000 7%,
+    #000 93%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(90deg, transparent 0%, #000 7%, #000 93%, transparent 100%);
+}
+
+.top-bar > * {
+  position: relative;
+  z-index: 1;
 }
 
 .brand {
@@ -840,6 +871,7 @@
   gap: var(--main-to-footer-gap);
   flex: 1;
   min-height: 0;
+  box-sizing: border-box;
   /* 横轨裁切；纵向用 auto（勿用 scroll）：仅当内容高于可视区域时出现滚动条，高度足够时不占滚动条轨 */
   overflow-x: hidden;
   overflow-y: auto;
@@ -847,6 +879,28 @@
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
   scrollbar-color: rgba(148, 163, 184, 0.55) transparent;
+}
+
+/*
+ * 底栏圆角 / 横向 box-shadow 会画出主区宽度外；overflow-x:hidden 会把两侧裁成直棱。
+ * 在支持的环境用 clip + clip-margin 扩大可绘制带；否则略加左右内边距兜底。
+ */
+@supports (overflow-clip-margin: 1px) {
+  .main-layout.view-play,
+  .main-layout.view-history,
+  .main-layout.view-catalog {
+    overflow-x: clip;
+    overflow-clip-margin: 18px;
+  }
+}
+
+@supports not (overflow-clip-margin: 1px) {
+  .main-layout.view-play,
+  .main-layout.view-history,
+  .main-layout.view-catalog {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
 }
 
 .main-layout.view-play::-webkit-scrollbar,
@@ -917,8 +971,17 @@
   max-width: 100%;
   flex-shrink: 0;
   align-self: stretch;
-  overflow: hidden;
+  /* 横滑轨需裁切左右；纵向放开，避免底栏卡片外阴影 / 渐隐光被裁成硬边 */
+  overflow-x: hidden;
+  overflow-y: visible;
   box-sizing: border-box;
+}
+
+@supports (overflow-clip-margin: 1px) {
+  .view-mode-footer-shell {
+    overflow-x: clip;
+    overflow-clip-margin: 14px;
+  }
 }
 
 /*
@@ -944,15 +1007,57 @@
   flex-shrink: 0;
   margin-top: 0;
   padding-top: var(--main-to-footer-gap);
-  padding-bottom: max(4px, env(safe-area-inset-bottom, 0px));
+  /*
+   * main-layout 为 overflow-y:auto，子元素 box-shadow 向下超出时会被裁成硬线。
+   * 加大底内边距，并在壳层用渐变绘制「向下消散」（画在背景层内，不依赖外阴影穿出）。
+   */
+  padding-bottom: calc(56px + max(4px, env(safe-area-inset-bottom, 0px)));
+  /* 横向裁切继承 .view-mode-footer-shell + overflow-clip-margin，勿在此写回 hidden 覆盖 */
+  /*
+   * 底部必须收到与 app-root 相近的透明，否则会出现「一块玻璃板」底边：
+   * 深色实底 + backdrop-filter 在矩形下缘被齐切，与 app-shell 外底色形成突兀横线。
+   */
   background: linear-gradient(
     180deg,
     rgba(6, 11, 25, 0) 0%,
-    rgba(7, 12, 28, 0.82) 38%,
-    rgba(7, 12, 28, 0.96) 100%
+    rgba(7, 12, 28, 0.78) 32%,
+    rgba(7, 12, 28, 0.68) 52%,
+    rgba(7, 12, 28, 0.35) 74%,
+    rgba(2, 3, 9, 0.08) 90%,
+    rgba(2, 3, 9, 0) 100%
   );
   backdrop-filter: blur(14px) saturate(130%);
   -webkit-backdrop-filter: blur(14px) saturate(130%);
+}
+
+/* 轻微靛色气承接卡片（低对比，避免与壳层渐变打架再出一条棱） */
+.main-layout.view-play > .view-mode-footer-shell:not(.view-mode-main-shell)::after,
+.main-layout.view-history > .view-mode-footer-shell:not(.view-mode-main-shell)::after,
+.main-layout.view-catalog > .view-mode-footer-shell:not(.view-mode-main-shell)::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: min(72px, 32%);
+  pointer-events: none;
+  z-index: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(99, 102, 241, 0.06) 0%,
+    rgba(79, 70, 229, 0.025) 50%,
+    transparent 100%
+  );
+  opacity: 0.75;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 22%, #000 100%);
+  mask-image: linear-gradient(180deg, transparent 0%, #000 22%, #000 100%);
+}
+
+.main-layout.view-play > .view-mode-footer-shell:not(.view-mode-main-shell) .view-mode-footer-track,
+.main-layout.view-history > .view-mode-footer-shell:not(.view-mode-main-shell) .view-mode-footer-track,
+.main-layout.view-catalog > .view-mode-footer-shell:not(.view-mode-main-shell) .view-mode-footer-track {
+  position: relative;
+  z-index: 1;
 }
 
 /*
@@ -1430,8 +1535,10 @@
 .pt {
   position: absolute;
   z-index: 2;
-  width: clamp(22px, calc(var(--cellPx) * 1.72), 36px);
-  height: clamp(22px, calc(var(--cellPx) * 1.72), 36px);
+  /* 勿用大于一格的 clamp 下限：窄屏时 cellPx 小，22px 会大于一格导致棋子重叠。
+     第三项按格宽限制（约 14% 边距），格距足够时仍由 min(36px, …) 保持原视觉大小 */
+  width: min(36px, calc(var(--cellPx) * 1.72), calc(var(--cellPx) * 0.86));
+  height: min(36px, calc(var(--cellPx) * 1.72), calc(var(--cellPx) * 0.86));
   transform: translate(-50%, -50%);
   border: none;
   padding: 0;
@@ -1493,9 +1600,11 @@
   }
 }
 
+/* 须相对 .pt 铺满后居中：用 cellPx 比例 inset 时，窄屏 .pt 被压到约 0.86 格宽，
+   0.42×2 几乎占满父盒，十字中心会偏，与背景网格脱节 */
 .pt-cross {
   position: absolute;
-  inset: calc(var(--cellPx) * 0.42);
+  inset: 0;
   pointer-events: none;
 }
 
@@ -1841,9 +1950,14 @@
   background:
     linear-gradient(90deg, rgba(15, 23, 42, 0.9), rgba(17, 24, 39, 0.96)),
     radial-gradient(circle at 0 50%, rgba(59, 130, 246, 0.32), transparent 60%);
+  /* 内缘用柔化池化替代 1px inset 线；向下外扩减弱，余量交给底栏壳层 ::after 渐变 */
   box-shadow:
     var(--shadow-footer-soft),
-    var(--shadow-footer-inset);
+    inset 0 0 26px -10px rgba(30, 58, 138, 0.35),
+    inset 0 0 0 1px rgba(148, 163, 184, 0.1),
+    0 8px 22px rgba(15, 23, 42, 0.18),
+    0 16px 40px rgba(59, 130, 246, 0.06),
+    0 26px 52px rgba(99, 102, 241, 0.04);
 }
 
 .main-layout.view-play .status-strip--under-board .status-main,
@@ -1885,39 +1999,108 @@
   font-weight: 600;
 }
 
-/* 人机对弈轮到 AI 时：底栏与主文案高亮（保持最初简洁度）。横向 mask 让描边与光晕在左右贴视口前渐隐，避免一条硬线 */
+/* 人机对弈轮到 AI：半透明靛底 + 顶缘微光；纵向放开以便底部漫射外扩，横向上仍裁圆角内溢出 */
 .main-layout.view-play .status-strip--under-board.status-strip--ai-thinking {
+  overflow-x: hidden;
+  overflow-y: visible;
   background:
-    linear-gradient(90deg, rgba(15, 23, 42, 0.95), rgba(30, 27, 75, 0.98)),
-    radial-gradient(circle at 12% 50%, rgba(99, 102, 241, 0.45), transparent 60%),
-    radial-gradient(circle at 88% 50%, rgba(59, 130, 246, 0.28), transparent 55%);
+    linear-gradient(90deg, rgba(15, 23, 42, 0.92), rgba(30, 27, 75, 0.94), rgba(15, 23, 42, 0.92)),
+    linear-gradient(180deg, rgba(129, 140, 248, 0.1) 0%, transparent 38%),
+    radial-gradient(ellipse 120% 90% at 28% -20%, rgba(99, 102, 241, 0.18), transparent 52%);
   box-shadow:
     var(--shadow-footer-soft),
-    var(--shadow-footer-inset),
-    0 0 0 1px rgba(129, 140, 248, 0.55),
-    0 0 28px rgba(99, 102, 241, 0.35);
-  -webkit-mask-image: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(0, 0, 0, 0.35) 6%,
-    #000 14%,
-    #000 86%,
-    rgba(0, 0, 0, 0.35) 94%,
-    transparent 100%
+    inset 0 0 28px -8px rgba(79, 70, 229, 0.22),
+    inset 0 2px 14px rgba(255, 255, 255, 0.05),
+    inset 0 0 0 1px rgba(186, 198, 252, 0.12),
+    0 0 0 1px rgba(139, 150, 255, 0.38),
+    0 0 26px rgba(99, 102, 241, 0.3),
+    0 0 42px rgba(99, 102, 241, 0.16),
+    0 -6px 30px rgba(129, 140, 248, 0.14),
+    0 10px 28px rgba(79, 70, 229, 0.09),
+    0 20px 44px rgba(99, 102, 241, 0.05);
+}
+
+/* 顶光：柔化长渐变 + 椭圆光团平移（避免斜条 + overflow 裁切造成的平顶硬边） */
+.main-layout.view-play .status-strip--under-board.status-strip--ai-thinking::before {
+  content: '';
+  position: absolute;
+  inset: -6px -4px 0 -4px;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 1;
+  background-image:
+    linear-gradient(
+      180deg,
+      rgba(224, 242, 254, 0.14) 0%,
+      rgba(186, 230, 253, 0.1) 10%,
+      rgba(125, 211, 252, 0.06) 22%,
+      rgba(99, 102, 241, 0.03) 38%,
+      transparent 58%
+    ),
+    radial-gradient(
+      ellipse 110% 95% at 50% 0%,
+      rgba(255, 255, 255, 0.2) 0%,
+      rgba(186, 230, 253, 0.14) 28%,
+      rgba(99, 102, 241, 0.08) 52%,
+      transparent 78%
+    );
+  background-size:
+    100% 100%,
+    165% 120%;
+  background-position:
+    0 0,
+    -35% 0;
+  background-repeat: no-repeat;
+  filter: blur(5px);
+  mix-blend-mode: soft-light;
+  opacity: 0.78;
+  will-change: background-position, opacity, transform;
+  transform: translateZ(0);
+  animation:
+    statusAiThinkingTopRimSweep 10.5s cubic-bezier(0.38, 0.02, 0.22, 1) infinite,
+    statusAiThinkingTopRimBreath 2.85s cubic-bezier(0.42, 0.12, 0.58, 0.88) infinite,
+    statusAiThinkingTopRimSway 5.5s ease-in-out infinite;
+}
+
+/* Worker 算棋：顶侧漫射略起伏，多停点避免一圈「硬边」 */
+.main-layout.view-play
+  .status-strip--under-board.status-strip--ai-thinking.status-strip--ai-worker-busy::after {
+  content: '';
+  position: absolute;
+  inset: -4px -4px 0 -4px;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(
+    ellipse 125% 100% at 50% -5%,
+    rgba(199, 210, 254, 0.12) 0%,
+    rgba(129, 140, 248, 0.07) 35%,
+    rgba(79, 70, 229, 0.03) 55%,
+    transparent 72%
   );
-  mask-image: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(0, 0, 0, 0.35) 6%,
-    #000 14%,
-    #000 86%,
-    rgba(0, 0, 0, 0.35) 94%,
-    transparent 100%
-  );
+  filter: blur(4px);
+  mix-blend-mode: soft-light;
+  opacity: 0.48;
+  will-change: opacity;
+  transform: translateZ(0);
+  animation: statusAiThinkingWorkerVeil 3.8s cubic-bezier(0.4, 0.1, 0.6, 0.9) infinite;
+}
+
+.main-layout.view-play .status-strip--under-board.status-strip--ai-thinking .status-main,
+.main-layout.view-play .status-strip--under-board.status-strip--ai-thinking .status-secondary,
+.main-layout.view-play .status-strip--under-board.status-strip--ai-thinking .status-strip-actions {
+  position: relative;
+  z-index: 2;
 }
 
 .main-layout.view-play .status-strip--under-board.status-strip--ai-thinking.status-strip--ai-worker-busy {
-  animation: statusStripAiThinkingPulse 1.35s ease-in-out infinite;
+  animation: statusStripAiThinkingPulse 2.45s cubic-bezier(0.36, 0.1, 0.34, 1) infinite;
+}
+
+.main-layout.view-play
+  .status-strip--under-board.status-strip--ai-thinking
+  .status-main.status-main--ai-thinking {
+  animation: statusMainAiThinkingBreath 3.25s cubic-bezier(0.42, 0.08, 0.58, 0.92) infinite;
 }
 
 .main-layout.view-play .status-strip--under-board .status-main.status-main--ai-thinking {
@@ -1925,7 +2108,9 @@
   font-weight: 700;
   letter-spacing: 0.04em;
   color: #e0e7ff;
-  text-shadow: 0 0 20px rgba(165, 180, 252, 0.55);
+  text-shadow:
+    0 0 22px rgba(165, 180, 252, 0.62),
+    0 0 36px rgba(99, 102, 241, 0.28);
 }
 
 @keyframes statusStripAiThinkingPulse {
@@ -1933,22 +2118,115 @@
   100% {
     box-shadow:
       var(--shadow-footer-soft),
-      var(--shadow-footer-inset),
-      0 0 0 1px rgba(129, 140, 248, 0.55),
-      0 0 28px rgba(99, 102, 241, 0.35);
+      inset 0 0 28px -8px rgba(79, 70, 229, 0.2),
+      inset 0 2px 12px rgba(255, 255, 255, 0.04),
+      inset 0 0 0 1px rgba(186, 198, 252, 0.1),
+      0 0 0 1px rgba(139, 150, 255, 0.46),
+      0 0 30px rgba(99, 102, 241, 0.34),
+      0 0 48px rgba(99, 102, 241, 0.18),
+      0 -6px 32px rgba(129, 140, 248, 0.18),
+      0 10px 28px rgba(79, 70, 229, 0.08),
+      0 20px 44px rgba(99, 102, 241, 0.05);
   }
   50% {
     box-shadow:
       var(--shadow-footer-soft),
-      var(--shadow-footer-inset),
-      0 0 0 1px rgba(165, 180, 252, 0.75),
-      0 0 40px rgba(129, 140, 248, 0.55);
+      inset 0 0 32px -6px rgba(129, 140, 248, 0.28),
+      inset 0 2px 18px rgba(255, 255, 255, 0.08),
+      inset 0 0 0 1px rgba(226, 232, 255, 0.18),
+      0 0 0 1px rgba(210, 219, 255, 0.75),
+      0 0 48px rgba(165, 180, 252, 0.45),
+      0 0 78px rgba(99, 102, 241, 0.3),
+      0 -8px 40px rgba(199, 210, 254, 0.26),
+      0 12px 34px rgba(129, 140, 248, 0.11),
+      0 22px 50px rgba(99, 102, 241, 0.07);
+  }
+}
+
+/* 椭圆光团水平漂移：行程略拉长，流动更易察觉 */
+@keyframes statusAiThinkingTopRimSweep {
+  0%,
+  100% {
+    background-position:
+      0 0,
+      -52% 0;
+  }
+  50% {
+    background-position:
+      0 0,
+      148% 0;
+  }
+}
+
+@keyframes statusAiThinkingTopRimBreath {
+  0%,
+  100% {
+    opacity: 0.48;
+  }
+  50% {
+    opacity: 0.96;
+  }
+}
+
+/* 极轻整体横移，与光团错位，强化「在动」而不引入硬边 */
+@keyframes statusAiThinkingTopRimSway {
+  0%,
+  100% {
+    transform: translate3d(-1.2%, 0, 0);
+  }
+  50% {
+    transform: translate3d(1.2%, 0, 0);
+  }
+}
+
+@keyframes statusAiThinkingWorkerVeil {
+  0%,
+  100% {
+    opacity: 0.28;
+  }
+  50% {
+    opacity: 0.62;
+  }
+}
+
+@keyframes statusMainAiThinkingBreath {
+  0%,
+  100% {
+    opacity: 0.82;
+    text-shadow:
+      0 0 18px rgba(165, 180, 252, 0.42),
+      0 0 30px rgba(99, 102, 241, 0.22);
+  }
+  50% {
+    opacity: 1;
+    text-shadow:
+      0 0 32px rgba(236, 242, 255, 0.88),
+      0 0 54px rgba(129, 140, 248, 0.48);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .main-layout.view-play .status-strip--under-board.status-strip--ai-thinking.status-strip--ai-worker-busy {
     animation: none;
+  }
+
+  .main-layout.view-play .status-strip--under-board.status-strip--ai-thinking::before,
+  .main-layout.view-play
+    .status-strip--under-board.status-strip--ai-thinking.status-strip--ai-worker-busy::after {
+    animation: none !important;
+    filter: none;
+    opacity: 0.72;
+    transform: none !important;
+    background-position:
+      0 0,
+      45% 0 !important;
+  }
+
+  .main-layout.view-play
+    .status-strip--under-board.status-strip--ai-thinking
+    .status-main.status-main--ai-thinking {
+    animation: none !important;
+    opacity: 1;
   }
 }
 
@@ -4791,11 +5069,11 @@
     padding: 15px;
   }
 
-  /* 触控屏：落子点略放大上限，便于粗手指点按（仍由 clamp 上限避免盖住过多邻格） */
+  /* 触控屏：略提高上限便于点按；同样不得大于一格，否则与上面窄屏重叠问题相同 */
   @media (pointer: coarse) {
     .pt {
-      width: clamp(28px, calc(var(--cellPx) * 1.78), 42px);
-      height: clamp(28px, calc(var(--cellPx) * 1.78), 42px);
+      width: min(42px, calc(var(--cellPx) * 1.78), calc(var(--cellPx) * 0.86));
+      height: min(42px, calc(var(--cellPx) * 1.78), calc(var(--cellPx) * 0.86));
     }
   }
 }
@@ -4804,7 +5082,7 @@
 @media (max-height: 520px) and (max-width: 960px) {
   :root {
     --layout-section-gap: 12px;
-    --main-to-footer-gap: clamp(4px, 1.2vh, 10px);
+    --main-to-footer-gap: clamp(3px, 1vh, 6px);
     /* 横屏 dvh 很小，chrome 须同步压低，否则棋盘 max-width 被 dvh−y 卡死（过窄、易误触） */
     --app-chrome-y: 140px;
   }
@@ -4856,7 +5134,8 @@
 /* 极窄屏：再收字号与圆角 */
 @media (max-width: 360px) {
   :root {
-    --layout-pad-x: 10px;
+    /* 10px 时底栏玻璃易贴视口边被裁；略增与 app-shell 合起来仍可控 */
+    --layout-pad-x: 12px;
   }
 
   .pill {

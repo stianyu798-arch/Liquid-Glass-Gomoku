@@ -4526,7 +4526,7 @@ function App() {
                   </div>
                   <div className="about-meta-row">
                     <dt>创作工具</dt>
-                    <dd>Cursor、DeepSeek</dd>
+                    <dd>TRAE、DeepSeek、Kimi</dd>
                   </div>
                 </dl>
               </div>
