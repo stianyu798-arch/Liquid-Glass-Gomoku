@@ -3,7 +3,6 @@
 **[English](README.en.md)** · 使用 **React 19、TypeScript、Vite** 实现的浏览器五子棋，深色 **Liquid Glass** 界面：人机对弈、本地历史、招式库与棋盘演示。
 
 |  |  |
-|--|--|
 | **变更记录** | [CHANGELOG.md](CHANGELOG.md) |
 | **在线试玩（GitHub Pages）** | [stianyu798-arch.github.io/Liquid-Glass-Gomoku](https://stianyu798-arch.github.io/Liquid-Glass-Gomoku/) |
 
