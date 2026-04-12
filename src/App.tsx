@@ -38,6 +38,23 @@ function formatDifficultyScoreMultiplier(d: Difficulty): string {
   return `×${DIFFICULTY_SCORE_MULTIPLIER[d]}`
 }
 
+/** 顶栏 / 招式续弈处难度按钮的悬停说明（精简） */
+const DIFFICULTY_BUTTON_TITLE: Record<Difficulty, string> = {
+  easy: '必输局面认真防守，平时较随性；有落子提示与高亮，适合入门或轻松下',
+  normal: '比简单算更深、更稳；无提示，适合认真练手感',
+  hard: '多候选推演求最优，棋力最强；无提示，更多见「关于本作」',
+}
+
+/** 人机对弈侧栏：当前难度的完整说明 */
+const DIFFICULTY_PLAY_SIDE_DESC: Record<Difficulty, string> = {
+  easy:
+    '简单：AI 会认真防守必输的局面，但平时下棋比较随性，偶尔走出一些意料之外的步子。这一档带有落子提示，推荐位置用高亮圈出，适合刚接触五子棋或者想轻松下两盘的时候。',
+  normal:
+    '普通：AI 比简单档算得更深，落子更稳，防守也更黏人。没有提示，需要自己判断局势，适合想认真练练手感的玩家。',
+  hard:
+    '困难：AI 会在多个候选位置之间反复推演，力求找到最优落点，整体棋力最强，比较难缠。同样没有提示，适合想挑战一下的玩家。更多细节可以在「关于本作」里看到。',
+}
+
 interface MoveRecord {
   index: number
   x: number
@@ -3236,7 +3253,7 @@ function App() {
                   className={`difficulty-opt ${difficulty === 'easy' ? 'difficulty-opt--active' : ''}`}
                   onClick={() => applyDifficultyChange('easy')}
                   aria-pressed={difficulty === 'easy'}
-                  title="必赢必防处认真下，其余带随机；有落子提示光"
+                  title={DIFFICULTY_BUTTON_TITLE.easy}
                 >
                   简单
                 </button>
@@ -3245,7 +3262,7 @@ function App() {
                   className={`difficulty-opt ${difficulty === 'normal' ? 'difficulty-opt--active' : ''}`}
                   onClick={() => applyDifficultyChange('normal')}
                   aria-pressed={difficulty === 'normal'}
-                  title="比简单多看几步棋，整体更强；无提示"
+                  title={DIFFICULTY_BUTTON_TITLE.normal}
                 >
                   普通
                 </button>
@@ -3254,7 +3271,7 @@ function App() {
                   className={`difficulty-opt ${difficulty === 'hard' ? 'difficulty-opt--active' : ''}`}
                   onClick={() => applyDifficultyChange('hard')}
                   aria-pressed={difficulty === 'hard'}
-                  title="深算并在多点模拟后再选，最难档；无提示"
+                  title={DIFFICULTY_BUTTON_TITLE.hard}
                 >
                   困难
                 </button>
@@ -3633,13 +3650,7 @@ function App() {
                     {formatDifficultyScoreMultiplier(difficulty)}
                   </span>
                 </div>
-                <p className="play-side-desc">
-                  {difficulty === 'easy'
-                    ? '简单：AI 在必赢、必防时不含糊，其余带点随机。提示光优先必胜与封堵对方成五，并浅层择优助进攻；跟灯易保持优势。'
-                    : difficulty === 'hard'
-                      ? '困难：AI 想得最深，还会在多个候选好点里再模拟、再取舍，整体最难对付；无提示。更多说明见「关于本作」。'
-                      : '普通：比简单「多看几步棋」，应手更稳、更难缠；本局只记招式与分数，无提示光。'}
-                </p>
+                <p className="play-side-desc">{DIFFICULTY_PLAY_SIDE_DESC[difficulty]}</p>
               </header>
               <div className="panel-section play-side-moves">
               <div className="panel-title panel-title--moves">招式板 / 本局走势</div>
@@ -4288,7 +4299,7 @@ function App() {
                                     difficulty === 'easy' ? ' catalog-continue-diff-opt--preset' : ''
                                   }`}
                                   onClick={() => runContinuePlayFromCatalog('easy')}
-                                  title="必赢必防处认真下，其余带随机；有落子提示光"
+                                  title={DIFFICULTY_BUTTON_TITLE.easy}
                                 >
                                   简单
                                 </button>
@@ -4298,7 +4309,7 @@ function App() {
                                     difficulty === 'normal' ? ' catalog-continue-diff-opt--preset' : ''
                                   }`}
                                   onClick={() => runContinuePlayFromCatalog('normal')}
-                                  title="比简单多看几步棋，整体更强；无提示"
+                                  title={DIFFICULTY_BUTTON_TITLE.normal}
                                 >
                                   普通
                                 </button>
@@ -4308,7 +4319,7 @@ function App() {
                                     difficulty === 'hard' ? ' catalog-continue-diff-opt--preset' : ''
                                   }`}
                                   onClick={() => runContinuePlayFromCatalog('hard')}
-                                  title="深算并在多点模拟后再选，最难档；无提示"
+                                  title={DIFFICULTY_BUTTON_TITLE.hard}
                                 >
                                   困难
                                 </button>
@@ -4566,30 +4577,40 @@ function App() {
                 关于本作
               </h2>
               <div className="about-modal-body">
-                <h3 className="about-modal-subtitle">创作想法</h3>
+                <h3 className="about-modal-subtitle">创作初衷</h3>
                 <p className="about-modal-text">
-                  希望用浏览器实现一套偏「Liquid Glass」质感的五子棋界面：深色背景上的磨砂玻璃、柔光与清晰的操作区，让人机对弈、历史回放与招式导读集中在同一块画布中。在规则简明的前提下，将棋形识别、多档难度与棋谱复习做成顺手的单页体验，并作为练习现代 CSS 与 React 状态管理的一次实践。
+                  我希望在浏览器中打造一个具有「Liquid Glass」质感的五子棋界面：深色背景上叠加磨砂玻璃、柔和光效与清晰的功能分区，将人机对弈、历史回放和招式学习集中呈现在同一块画布中。在规则简洁的前提下，把棋形识别、多档难度与棋谱复现做成顺手的一站式体验，同时这也是我练习现代 CSS 与 React 状态管理的一次实践。
                 </p>
-                <h3 className="about-modal-subtitle">AI 与参考实现</h3>
+                <h3 className="about-modal-subtitle">AI 实现与参考</h3>
+                <ul className="about-modal-list">
+                  <li>
+                    <strong>简单难度</strong>
+                    ：AI 会认真防守必输的局面，但平时下棋比较随性，偶尔走出意料之外的步子。本档带有落子提示，推荐位置以高亮标出，适合刚接触五子棋或想轻松下两盘的用户。
+                  </li>
+                  <li>
+                    <strong>普通难度</strong>
+                    ：AI 比简单档算得更深，落子更稳，防守也更黏人；无提示，需自行判断局势，适合想认真练练手感的玩家。
+                  </li>
+                  <li>
+                    <strong>困难难度</strong>
+                    ：AI 会在多个候选位置之间反复推演，力求最优落点，整体棋力最强、较难缠；同样无提示，适合希望挑战自我的玩家。实现请参阅{' '}
+                    <code>src/ai/engine.ts</code>
+                    ；计算在 Web Worker 中进行，避免界面卡顿。
+                  </li>
+                </ul>
                 <p className="about-modal-text">
-                  <strong>简单</strong>：该赢、该挡时不含糊；落子提示光同步考虑必胜、必防与浅层择优。其它时候 AI 带点随机，适合入门。
-                  <strong>普通</strong>：比简单多想几步，更难缠；无提示。
-                  <strong>困难</strong>：想得最深，还会在几个好点里再模拟几手棋来挑点；搜索中结合全盘线型评估与邻域启发（仍无神经网络）。
-                  具体算法见 <code>src/ai/engine.ts</code>；白方在 Web Worker 里算棋，避免卡住界面。
-                </p>
-                <p className="about-modal-text">
-                  若关注<strong>基于深度强化学习的五子棋 AI 框架</strong>（MCTS、PPO、策略–价值网络等），可参考社区开源项目{' '}
+                  若对基于深度强化学习的五子棋 AI 框架（MCTS、PPO、策略-价值网络等）感兴趣，可参考社区开源项目{' '}
                   <a href="https://github.com/guokezhen999/gomoku_rl" target="_blank" rel="noopener noreferrer">
                     guokezhen999/gomoku_rl
                   </a>
-                  （Python / PyTorch，自述为深度强化学习方向；与本作前端搜索实现相互独立，供算法与工程延伸）。
+                  （Python / PyTorch，专注于深度学习方向）；它与本作的前端搜索实现相互独立，供算法与工程拓展参考。
                 </p>
                 <p className="about-modal-text">
-                  经典<strong>α-β 剪枝</strong>五子棋 AI 与教程可参考{' '}
+                  经典的 α-β 剪枝五子棋 AI 与教程可参阅{' '}
                   <a href="https://github.com/lihongxun945/gobang" target="_blank" rel="noopener noreferrer">
                     lihongxun945/gobang
                   </a>
-                  （JavaScript；作者说明为传统搜索、<strong>非</strong>神经网络，适合对照阅读）。
+                  （JavaScript；作者说明为传统搜索、不含神经网络，适合对照学习）。
                 </p>
                 <dl className="about-meta">
                   <div className="about-meta-row">
@@ -4597,12 +4618,12 @@ function App() {
                     <dd>2026年4月11日</dd>
                   </div>
                   <div className="about-meta-row">
-                    <dt>创作人</dt>
+                    <dt>作者</dt>
                     <dd>石天宇</dd>
                   </div>
                   <div className="about-meta-row">
                     <dt>创作工具</dt>
-                    <dd>TRAE、DeepSeek、Kimi</dd>
+                    <dd>Cursor、DeepSeek</dd>
                   </div>
                 </dl>
               </div>

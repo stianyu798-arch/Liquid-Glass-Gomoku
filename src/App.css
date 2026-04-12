@@ -658,6 +658,22 @@
   color: rgba(226, 232, 240, 0.92);
 }
 
+.about-modal-list {
+  margin: 0 0 14px;
+  padding: 0 0 0 1.15em;
+  font-size: 14px;
+  line-height: 1.62;
+  color: rgba(226, 232, 240, 0.92);
+}
+
+.about-modal-list li {
+  margin-bottom: 8px;
+}
+
+.about-modal-list li:last-child {
+  margin-bottom: 0;
+}
+
 .about-modal-body a {
   color: #93c5fd;
   text-decoration: underline;

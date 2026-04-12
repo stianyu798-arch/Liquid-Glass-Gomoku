@@ -1,6 +1,6 @@
 # Gomoku · Liquid Glass
 
-**[简体中文](README.md)** · Browser **Gomoku** (five-in-a-row) built with **React 19**, **TypeScript**, and **Vite** — dark liquid-glass UI, human vs AI, local history & replay, and a pattern encyclopedia with board demos.
+**[简体中文](README.md)** · Browser **Gomoku** (five-in-a-row) built with **React 19**, **TypeScript**, and **Vite** — dark **Liquid Glass** UI, human vs AI, local history, a pattern encyclopedia, and board demos.
 
 |  |  |
 |--|--|
@@ -11,7 +11,7 @@
 
 ## Overview
 
-This project is **frontend-only**: no native app and no separate backend; data stays in your browser. The UI uses glass-style panels and gradients. The board and side panels scale with the window; on narrow viewports the main column stacks vertically, and in play mode the sidebar lines up with the board height to avoid large empty areas.
+This project is **frontend-only**: no standalone client and no separate backend—all game data stays in your browser. The UI uses Liquid Glass–style panels and gradients. The board and side panels scale with the window; on narrow viewports the main column stacks vertically.
 
 ---
 
@@ -20,9 +20,9 @@ This project is **frontend-only**: no native app and no separate backend; data s
 ### Human vs AI
 
 - **Board**: standard **15×15**; by default **you play black**, the AI plays white.
-- **Easy**: after forced tactics (must-win / must-block, etc.), candidate moves are sampled with **softmax temperature** over static scores — varied play. **Only this mode** offers move hints and pattern naming in the side list.
-- **Normal**: **alpha-beta** search with **neighborhood-based** leaf evaluation.
-- **Hard**: deeper **alpha-beta** plus **Monte Carlo rollouts** at the root; leaves can use a **full-board line-pattern diff** aligned with the project docs, move ordering, and a neighborhood radius; severe threats may still be blocked instantly, while lighter threats are left to search to balance **attack vs defense**. **No neural network.**
+- **Easy**: plays forced defenses seriously, but is more casual the rest of the time—sometimes surprising. Candidates are sampled with **softmax temperature** over static scores. **Only this mode** offers move hints and pattern naming in the side list.
+- **Normal**: searches deeper than Easy, steadier and stickier on defense; no hints—good for practicing reads. **Alpha-beta** search with **neighborhood-based** leaf evaluation.
+- **Hard**: explores multiple candidates to find strong moves; deeper **alpha-beta** plus root **Monte Carlo rollouts**; leaves can use a **full-board line-pattern diff**, ordering, and neighborhood radius. Severe threats may still be blocked; otherwise search balances **attack vs defense**. **No neural network.**
 
 ### In-game helpers
 
@@ -50,7 +50,7 @@ This project is **frontend-only**: no native app and no separate backend; data s
 
 ### Architecture
 
-- **Normal / hard** AI runs in a **Web Worker** ([`src/ai/ai.worker.ts`](src/ai/ai.worker.ts)) so long searches don’t freeze the UI; **easy** stays on the main thread.
+- **All three** difficulty levels run AI in a **Web Worker** ([`src/ai/ai.worker.ts`](src/ai/ai.worker.ts)) so long searches don’t freeze the UI; falls back to the main thread if the worker is unavailable.
 - Shared search and evaluation logic lives in [`src/ai/engine.ts`](src/ai/engine.ts).
 
 ### AI summary
@@ -61,7 +61,7 @@ This project is **frontend-only**: no native app and no separate backend; data s
 | **Normal** | `pickBestMoveMinimax(board, 3)`; leaf eval slightly favors defense (opponent best ×1.08). |
 | **Hard** | `pickBestMoveHardHybrid`: alpha-beta plus root MC rollouts; optional doc-style full-board line diff, quick ordering, radius-2 candidates. |
 
-**External references** (independent of this repo): [gomoku_rl](https://github.com/guokezhen999/gomoku_rl) (deep RL / PyTorch), [gobang](https://github.com/lihongxun945/gobang) (classic alpha-beta, JS). See in-app **About** for more.
+More context on motivation and references: see **About this project** below and the in-app **About** dialog.
 
 ---
 
@@ -104,6 +104,36 @@ Typical URL: `https://<user>.github.io/<repo>/`
 ## Data & privacy
 
 History is stored only in the browser’s **`localStorage`**. **Nothing is uploaded** to a server.
+
+---
+
+## About this project
+
+### Motivation
+
+I wanted a browser-based Gomoku UI with a **Liquid Glass** feel: frosted glass, soft lighting, and clear functional zones on a dark canvas, bringing human vs AI, history replay, and pattern study into one view. With simple rules, pattern recognition, multiple difficulty levels, and game replay should feel like a single, smooth workflow—also a hands-on exercise in modern CSS and React state management.
+
+### AI implementation & references
+
+- **Easy**: Defends losing positions seriously, but plays more casually otherwise—sometimes unexpected. This mode includes move hints with highlights—good for newcomers or relaxed games.
+- **Normal**: Deeper and steadier than Easy, stickier on defense; no hints—you judge the position yourself; good for building intuition.
+- **Hard**: Explores multiple candidates to find the best reply; strongest overall and toughest to beat; no hints—for players who want a challenge. See `src/ai/engine.ts`; computation runs in a **Web Worker** to keep the UI responsive.
+
+For **deep reinforcement learning** Gomoku frameworks (MCTS, PPO, policy–value nets, etc.), the community project [guokezhen999/gomoku_rl](https://github.com/guokezhen999/gomoku_rl) (Python / PyTorch) is an independent reference from this repo’s front-end search stack.
+
+Classic **alpha-beta** Gomoku AI and tutorials: [lihongxun945/gobang](https://github.com/lihongxun945/gobang) (JavaScript; traditional search, no neural nets—useful for comparison).
+
+### Date
+
+April 11, 2026
+
+### Author
+
+石天宇 (Shi Tianyu)
+
+### Tools
+
+Cursor, DeepSeek
 
 ---
 
